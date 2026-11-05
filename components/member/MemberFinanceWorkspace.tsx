@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { getToken, logout } from "@/lib/auth";
 
@@ -29,7 +29,7 @@ type FinanceData = {
   summary: { currency: string; totalCharged: number; allocatedPaid: number; outstandingBalance: number; completedPaymentsAmount: number; unallocatedCompletedPayments: number };
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:3001";
 const money = (value: number | string, currency = "KES") => new Intl.NumberFormat("en-KE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value || 0));
 const date = (value?: string | null) => value ? new Date(value).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const statusStyle = (value: string) => ["COMPLETED", "PAID", "ISSUED", "ACTIVE"].includes(value) ? "bg-emerald-50 text-emerald-700" : ["PENDING", "PROCESSING", "PARTIALLY_PAID"].includes(value) ? "bg-amber-50 text-amber-700" : ["FAILED", "CANCELLED", "VOIDED", "REJECTED"].includes(value) ? "bg-rose-50 text-rose-700" : "bg-black/[0.05] text-black/55";

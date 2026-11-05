@@ -944,6 +944,11 @@ function getAdministrationSections(): NavSection[] {
           icon: "finance",
         },
         {
+          label: "Financial Periods",
+          href: "/administration/finance/periods",
+          icon: "finance",
+        },
+        {
           label: "Payments",
           href: "/administration/finance/payments",
           icon: "finance",

@@ -277,9 +277,9 @@ function PaymentRow({ payment, reload }: { payment: PaymentRecord; reload?: () =
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function act(path: string, body: unknown) {
+  async function act(path: string, body: unknown, method: "POST" | "PATCH" = "POST") {
     setBusy(true); setError("");
-    try { await apiMutation(path, body); setEditing(false); setConfirmCancel(false); reload?.(); }
+    try { await apiWrite(path, method, body); setEditing(false); setConfirmCancel(false); reload?.(); }
     catch (e) { setError(e instanceof Error ? e.message : "Payment action failed."); }
     finally { setBusy(false); }
   }
@@ -304,7 +304,7 @@ function PaymentRow({ payment, reload }: { payment: PaymentRecord; reload?: () =
         <input aria-label="Payment reference" maxLength={150} value={reference} onChange={e => setReference(e.target.value)} placeholder="Internal reference" className="w-full rounded-lg border px-2 py-2 text-xs" />
         <input aria-label="External reference" maxLength={150} value={externalReference} onChange={e => setExternalReference(e.target.value)} placeholder="External/provider reference" className="w-full rounded-lg border px-2 py-2 text-xs" />
         <input aria-label="Payment description" maxLength={500} value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="w-full rounded-lg border px-2 py-2 text-xs" />
-        <button type="button" disabled={busy} onClick={() => void act(base, { reference, externalReference, description })} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Save details</button>
+        <button type="button" disabled={busy} onClick={() => void act(base, { reference, externalReference, description }, "PATCH")} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Save details</button>
       </div> : null}
       {confirmCancel ? <div className="mt-2 rounded-lg bg-rose-50 p-2"><p className="text-[10px] text-rose-800">Cancel this unallocated payment?</p><button type="button" disabled={busy} onClick={() => void act(base + "/cancel", {})} className="mt-2 rounded-lg bg-rose-700 px-3 py-2 text-[10px] font-bold text-white">Confirm cancel</button><button type="button" onClick={() => setConfirmCancel(false)} className="ml-2 rounded-lg border px-3 py-2 text-[10px]">Keep</button></div> : null}
       {error ? <p className="mt-2 text-[10px] text-rose-700">{error}</p> : null}

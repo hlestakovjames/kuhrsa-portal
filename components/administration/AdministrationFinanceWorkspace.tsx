@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getToken, logout } from "@/lib/auth";
+import FinanceProviderConfiguration from "@/components/administration/FinanceProviderConfiguration";
 
 type FinanceView =
   | "dashboard" | "fees" | "payments" | "history" | "mpesa" | "periods"
@@ -1145,6 +1146,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   if (view === "mpesa") {
     return <div className="space-y-6">
       <Header title="M-Pesa Transactions" description="Initiate a customer STK push and monitor payment/provider status from the KUHRSA backend. Statement matching and exception reconciliation remain separate." />
+      <FinanceProviderConfiguration />
       <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
         <h2 className="text-lg font-black text-[#0B2633]">Initiate M-Pesa STK push</h2>
         <p className="mt-1 text-sm text-black/45">The backend creates a pending payment, requests the provider STK push and updates the transaction after provider callbacks. Do not mark an STK payment completed manually.</p>

@@ -269,7 +269,51 @@ function Badge({ value }: { value: string }) {
   );
 }
 
-function PaymentsTable({ title, records }: { title: string; records: PaymentRecord[] }) {
+function PaymentRow({ payment, reload }: { payment: PaymentRecord; reload?: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [reference, setReference] = useState(payment.reference ?? "");
+  const [externalReference, setExternalReference] = useState(payment.externalReference ?? "");
+  const [description, setDescription] = useState(payment.description ?? "");
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function act(path: string, body: unknown) {
+    setBusy(true); setError("");
+    try { await apiMutation(path, body); setEditing(false); setConfirmCancel(false); reload?.(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Payment action failed."); }
+    finally { setBusy(false); }
+  }
+  const base = `/finance/payments/${encodeURIComponent(payment.id)}`;
+  const canComplete = ["PENDING", "PROCESSING"].includes(payment.status) && payment.method !== "MPESA";
+  const canCancel = ["PENDING", "PROCESSING", "FAILED"].includes(payment.status) && !(payment.allocations?.length);
+  return <>
+    <tr className="border-b border-black/[0.05] last:border-0">
+      <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{payment.reference || payment.externalReference || payment.id.slice(0, 8)}</td>
+      <td className="px-3 py-4 text-xs font-semibold text-black/60">{memberLabel(payment.member)}</td>
+      <td className="px-3 py-4 text-xs text-black/50">{memberNumber(payment.member)}</td>
+      <td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(payment.amount, payment.currency)}</td>
+      <td className="px-3 py-4 text-xs text-black/55">{formatStatus(payment.method)}</td>
+      <td className="px-3 py-4 text-xs text-black/55">{formatDate(payment.paidAt || payment.createdAt)}</td>
+      <td className="px-3 py-4"><Badge value={payment.status} /></td>
+      {reload ? <td className="min-w-[190px] px-3 py-4"><div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => setEditing(!editing)} className="rounded-lg border px-3 py-2 text-[10px] font-bold">Edit details</button>
+        {canComplete ? <button type="button" disabled={busy} onClick={() => void act(base + "/complete", {})} className="rounded-lg bg-emerald-700 px-3 py-2 text-[10px] font-bold text-white">Confirm received</button> : null}
+        {canCancel ? <button type="button" disabled={busy} onClick={() => setConfirmCancel(true)} className="rounded-lg border border-rose-200 px-3 py-2 text-[10px] font-bold text-rose-700">Cancel</button> : null}
+      </div>
+      {editing ? <div className="mt-2 space-y-2">
+        <input aria-label="Payment reference" maxLength={150} value={reference} onChange={e => setReference(e.target.value)} placeholder="Internal reference" className="w-full rounded-lg border px-2 py-2 text-xs" />
+        <input aria-label="External reference" maxLength={150} value={externalReference} onChange={e => setExternalReference(e.target.value)} placeholder="External/provider reference" className="w-full rounded-lg border px-2 py-2 text-xs" />
+        <input aria-label="Payment description" maxLength={500} value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="w-full rounded-lg border px-2 py-2 text-xs" />
+        <button type="button" disabled={busy} onClick={() => void act(base, { reference, externalReference, description })} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Save details</button>
+      </div> : null}
+      {confirmCancel ? <div className="mt-2 rounded-lg bg-rose-50 p-2"><p className="text-[10px] text-rose-800">Cancel this unallocated payment?</p><button type="button" disabled={busy} onClick={() => void act(base + "/cancel", {})} className="mt-2 rounded-lg bg-rose-700 px-3 py-2 text-[10px] font-bold text-white">Confirm cancel</button><button type="button" onClick={() => setConfirmCancel(false)} className="ml-2 rounded-lg border px-3 py-2 text-[10px]">Keep</button></div> : null}
+      {error ? <p className="mt-2 text-[10px] text-rose-700">{error}</p> : null}
+      </td> : null}
+    </tr>
+  </>;
+}
+
+function PaymentsTable({ title, records, reload, actions = false }: { title: string; records: PaymentRecord[]; reload?: () => void; actions?: boolean }) {
   return (
     <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
       <div className="mb-5">
@@ -282,19 +326,9 @@ function PaymentsTable({ title, records }: { title: string; records: PaymentReco
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
             <thead><tr className="border-b border-black/[0.06]">
-              {["Reference", "Member", "Member Number", "Amount", "Method", "Date", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{item}</th>)}
+              {["Reference", "Member", "Member Number", "Amount", "Method", "Date", "Status", ...(actions ? ["Actions"] : [])].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{item}</th>)}
             </tr></thead>
-            <tbody>{records.map((item) => (
-              <tr key={item.id} className="border-b border-black/[0.05] last:border-0">
-                <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{item.reference || item.externalReference || item.id.slice(0, 8)}</td>
-                <td className="px-3 py-4 text-xs font-semibold text-black/60">{memberLabel(item.member)}</td>
-                <td className="px-3 py-4 text-xs text-black/50">{memberNumber(item.member)}</td>
-                <td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(item.amount, item.currency)}</td>
-                <td className="px-3 py-4 text-xs text-black/55">{formatStatus(item.method)}</td>
-                <td className="px-3 py-4 text-xs text-black/55">{formatDate(item.paidAt || item.createdAt)}</td>
-                <td className="px-3 py-4"><Badge value={item.status} /></td>
-              </tr>
-            ))}</tbody>
+            <tbody>{records.map((item) => <PaymentRow key={item.id} payment={item} reload={actions ? reload : undefined} />)}</tbody>
           </table>
         </div>
       )}
@@ -433,6 +467,16 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [editScheduleMemberCategory, setEditScheduleMemberCategory] = useState("");
   const [editScheduleConstitutionalCategory, setEditScheduleConstitutionalCategory] = useState("");
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [paymentMembers, setPaymentMembers] = useState<MemberRecord[]>([]);
+  const [paymentMemberId, setPaymentMemberId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentExternalReference, setPaymentExternalReference] = useState("");
+  const [paymentDescription, setPaymentDescription] = useState("");
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
   const [receiptPaymentId, setReceiptPaymentId] = useState("");
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
@@ -474,6 +518,10 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         setFees(await apiRequest<FeeDefinition[]>("/finance/fees"));
       } else if (view === "payments" || view === "history" || view === "mpesa") {
         setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
+        if (view === "payments") {
+          const memberResult = await Promise.allSettled([apiRequest<MemberRecord[]>("/members")]);
+          if (memberResult[0].status === "fulfilled") setPaymentMembers(memberResult[0].value);
+        }
       } else if (view === "receipts") {
         const [receiptRows, paymentRows] = await Promise.all([
           apiRequest<ReceiptRecord[]>("/finance/receipts"),
@@ -697,6 +745,33 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     }
   }
 
+  async function submitManualPayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(paymentAmount);
+    if (!paymentMemberId || !Number.isFinite(amount) || amount <= 0) {
+      setPaymentError("Select a member and enter a payment amount greater than zero.");
+      return;
+    }
+    setPaymentSaving(true); setPaymentError(null); setPaymentSuccess(null);
+    try {
+      await apiMutation("/finance/payments", {
+        memberId: paymentMemberId,
+        amount,
+        currency: "KES",
+        method: paymentMethod,
+        status: "PENDING",
+        ...(paymentReference.trim() ? { reference: paymentReference.trim() } : {}),
+        ...(paymentExternalReference.trim() ? { externalReference: paymentExternalReference.trim() } : {}),
+        ...(paymentDescription.trim() ? { description: paymentDescription.trim() } : {}),
+      });
+      setPaymentSuccess("Payment record created as PENDING. Verify the supporting evidence before confirming receipt.");
+      setPaymentAmount(""); setPaymentReference(""); setPaymentExternalReference(""); setPaymentDescription("");
+      await load();
+    } catch (actionError) {
+      setPaymentError(actionError instanceof Error ? actionError.message : "The payment record could not be created.");
+    } finally { setPaymentSaving(false); }
+  }
+
   async function submitReceipt(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!receiptPaymentId) return;
@@ -911,7 +986,25 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   }
 
   if (view === "payments" || view === "history") {
-    return <div className="space-y-6"><Header title={view === "history" ? "Payment History" : "Payments"} description="Live organization-scoped payment transactions from the finance API." /><PaymentsTable title={view === "history" ? "Payment History" : "Payment Register"} records={payments} /></div>;
+    return <div className="space-y-6">
+      <Header title={view === "history" ? "Payment History" : "Payments"} description="Live organization-scoped payment transactions from the finance API." />
+      {view === "payments" ? <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <h2 className="text-lg font-black text-[#0B2633]">Record a manual payment</h2>
+        <p className="mt-1 text-sm text-black/45">Manual entries are created as PENDING. Confirm receipt only after the cash, bank or other supporting evidence has been checked. Use the M-Pesa STK workflow for customer-initiated M-Pesa requests.</p>
+        {paymentError ? <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{paymentError}</p> : null}
+        {paymentSuccess ? <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{paymentSuccess}</p> : null}
+        <form onSubmit={submitManualPayment} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <label className="text-xs font-bold text-black/60">Member<select required value={paymentMemberId} onChange={e => setPaymentMemberId(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="">Select member</option>{paymentMembers.filter(m => m.id).map(m => <option key={m.id} value={m.id}>{memberLabel(m)} · {memberNumber(m)}</option>)}</select></label>
+          <label className="text-xs font-bold text-black/60">Amount (KES)<input required type="number" min="0.01" step="0.01" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="Enter amount received" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Method<select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="CASH">Cash</option><option value="BANK">Bank transfer</option><option value="MANUAL">Manual / other evidence</option><option value="OTHER">Other</option></select></label>
+          <label className="text-xs font-bold text-black/60">Internal reference (optional)<input maxLength={150} value={paymentReference} onChange={e => setPaymentReference(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">External reference (optional)<input maxLength={150} value={paymentExternalReference} onChange={e => setPaymentExternalReference(e.target.value)} placeholder="Bank slip / transaction reference" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Description (optional)<input maxLength={500} value={paymentDescription} onChange={e => setPaymentDescription(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <div className="md:col-span-2 xl:col-span-3"><button type="submit" disabled={paymentSaving || !paymentMembers.length} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-40">{paymentSaving ? "Recording…" : "Record pending payment"}</button>{!paymentMembers.length ? <p className="mt-2 text-xs text-amber-700">Member choices are unavailable. Check access to the member directory before recording a payment.</p> : null}</div>
+        </form>
+      </section> : null}
+      <PaymentsTable title={view === "history" ? "Payment History" : "Payment Register"} records={payments} reload={() => void load()} actions={view === "payments"} />
+    </div>;
   }
 
   if (view === "mpesa") {

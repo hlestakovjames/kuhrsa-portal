@@ -477,6 +477,14 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [mpesaMemberId, setMpesaMemberId] = useState("");
+  const [mpesaPhone, setMpesaPhone] = useState("");
+  const [mpesaAmount, setMpesaAmount] = useState("");
+  const [mpesaAccountReference, setMpesaAccountReference] = useState("");
+  const [mpesaDescription, setMpesaDescription] = useState("KUHRSA membership payment");
+  const [mpesaSaving, setMpesaSaving] = useState(false);
+  const [mpesaError, setMpesaError] = useState<string | null>(null);
+  const [mpesaSuccess, setMpesaSuccess] = useState<string | null>(null);
   const [receiptPaymentId, setReceiptPaymentId] = useState("");
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
@@ -518,7 +526,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         setFees(await apiRequest<FeeDefinition[]>("/finance/fees"));
       } else if (view === "payments" || view === "history" || view === "mpesa") {
         setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
-        if (view === "payments") {
+        if (view === "payments" || view === "mpesa") {
           const memberResult = await Promise.allSettled([apiRequest<MemberRecord[]>("/members")]);
           if (memberResult[0].status === "fulfilled") setPaymentMembers(memberResult[0].value);
         }
@@ -743,6 +751,34 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     } finally {
       setChargeSaving(false);
     }
+  }
+
+  async function submitMpesaStk(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(mpesaAmount);
+    if (!mpesaMemberId || !Number.isFinite(amount) || amount < 1) {
+      setMpesaError("Select a member and enter an amount of at least KSh 1.");
+      return;
+    }
+    if (!/^(?:254|\\+254|0)7\\d{8}$/.test(mpesaPhone.trim())) {
+      setMpesaError("Enter a valid Kenyan mobile number, for example 07XXXXXXXX or 2547XXXXXXXX.");
+      return;
+    }
+    setMpesaSaving(true); setMpesaError(null); setMpesaSuccess(null);
+    try {
+      const result = await apiMutation<{ payment: { id: string; status: string }; mpesa: { customerMessage?: string; responseDescription?: string } }>("/finance/payments/mpesa/stk", {
+        memberId: mpesaMemberId,
+        amount,
+        phoneNumber: mpesaPhone.trim(),
+        accountReference: mpesaAccountReference.trim(),
+        transactionDescription: mpesaDescription.trim(),
+      });
+      setMpesaSuccess(result.mpesa?.customerMessage || result.mpesa?.responseDescription || `STK request created. Payment status: ${formatStatus(result.payment.status)}.`);
+      setMpesaAmount(""); setMpesaPhone(""); setMpesaAccountReference("");
+      await load();
+    } catch (actionError) {
+      setMpesaError(actionError instanceof Error ? actionError.message : "The M-Pesa STK request could not be initiated.");
+    } finally { setMpesaSaving(false); }
   }
 
   async function submitManualPayment(event: React.FormEvent<HTMLFormElement>) {
@@ -1008,7 +1044,27 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   }
 
   if (view === "mpesa") {
-    return <div className="space-y-6"><Header title="M-Pesa Transactions" description="M-Pesa payment records and provider transaction references returned by the KUHRSA backend. This is a read-only transaction view, not a reconciliation tool." /><section className="grid gap-4 sm:grid-cols-3"><StatCard label="M-Pesa Transactions" value={mpesaPayments.length} /><StatCard label="Completed" value={mpesaPayments.filter((item) => item.status === "COMPLETED").length} /><StatCard label="Pending / Processing" value={mpesaPayments.filter((item) => ["PENDING", "PROCESSING"].includes(item.status)).length} /></section><PaymentsTable title="M-Pesa Payment Register" records={mpesaPayments} />{mpesaPayments.length > 0 ? <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><h2 className="text-lg font-black text-[#0B2633]">Provider references</h2><div className="mt-4 space-y-3">{mpesaPayments.map((item) => <div key={item.id} className="rounded-2xl bg-[#F8FBFC] p-4"><p className="text-sm font-bold text-[#0B2633]">{item.reference || item.id}</p><p className="mt-1 text-xs text-black/45">Checkout: {item.mpesaTransaction?.checkoutRequestId || "Not available"} · Merchant: {item.mpesaTransaction?.merchantRequestId || "Not available"}</p><p className="mt-1 text-xs text-black/45">Phone: {item.mpesaTransaction?.phoneNumber || "Not available"} · Result: {item.mpesaTransaction?.resultDescription || "No callback result recorded"}</p></div>)}</div></section> : null}</div>;
+    return <div className="space-y-6">
+      <Header title="M-Pesa Transactions" description="Initiate a customer STK push and monitor payment/provider status from the KUHRSA backend. Statement matching and exception reconciliation remain separate." />
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <h2 className="text-lg font-black text-[#0B2633]">Initiate M-Pesa STK push</h2>
+        <p className="mt-1 text-sm text-black/45">The backend creates a pending payment, requests the provider STK push and updates the transaction after provider callbacks. Do not mark an STK payment completed manually.</p>
+        {mpesaError ? <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{mpesaError}</p> : null}
+        {mpesaSuccess ? <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{mpesaSuccess}</p> : null}
+        <form onSubmit={submitMpesaStk} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <label className="text-xs font-bold text-black/60">Member<select required value={mpesaMemberId} onChange={e => { const id=e.target.value; setMpesaMemberId(id); const member=paymentMembers.find(item=>item.id===id); if(member) setMpesaAccountReference(memberNumber(member)); }} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="">Select member</option>{paymentMembers.filter(m=>m.id).map(m=><option key={m.id} value={m.id}>{memberLabel(m)} · {memberNumber(m)}</option>)}</select></label>
+          <label className="text-xs font-bold text-black/60">Phone number<input required value={mpesaPhone} onChange={e=>setMpesaPhone(e.target.value)} placeholder="07XXXXXXXX or 2547XXXXXXXX" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Amount (KES)<input required type="number" min="1" step="1" value={mpesaAmount} onChange={e=>setMpesaAmount(e.target.value)} placeholder="Enter amount" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Account reference<input required maxLength={100} value={mpesaAccountReference} onChange={e=>setMpesaAccountReference(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Transaction description<input required maxLength={255} value={mpesaDescription} onChange={e=>setMpesaDescription(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <div className="flex items-end"><button type="submit" disabled={mpesaSaving || !paymentMembers.length} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-40">{mpesaSaving ? "Sending STK…" : "Send STK push"}</button></div>
+        </form>
+        {!paymentMembers.length ? <p className="mt-3 text-xs text-amber-700">Member choices are unavailable. Check access to the member directory before initiating STK.</p> : null}
+      </section>
+      <section className="grid gap-4 sm:grid-cols-3"><StatCard label="M-Pesa Transactions" value={mpesaPayments.length} /><StatCard label="Completed" value={mpesaPayments.filter((item) => item.status === "COMPLETED").length} /><StatCard label="Pending / Processing" value={mpesaPayments.filter((item) => ["PENDING", "PROCESSING"].includes(item.status)).length} /></section>
+      <PaymentsTable title="M-Pesa Payment Register" records={mpesaPayments} />
+      {mpesaPayments.length > 0 ? <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><h2 className="text-lg font-black text-[#0B2633]">Provider references</h2><div className="mt-4 space-y-3">{mpesaPayments.map((item) => <div key={item.id} className="rounded-2xl bg-[#F8FBFC] p-4"><p className="text-sm font-bold text-[#0B2633]">{item.reference || item.id}</p><p className="mt-1 text-xs text-black/45">Checkout: {item.mpesaTransaction?.checkoutRequestId || "Not available"} · Merchant: {item.mpesaTransaction?.merchantRequestId || "Not available"}</p><p className="mt-1 text-xs text-black/45">Phone: {item.mpesaTransaction?.phoneNumber || "Not available"} · Result: {item.mpesaTransaction?.resultDescription || "No callback result recorded"}</p></div>)}</div></section> : null}
+    </div>;
   }
 
   if (view === "receipts") {

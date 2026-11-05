@@ -12,7 +12,7 @@ type FinanceData = {
     id: string; description?: string | null; amountDue: number | string; amountPaid: number | string; balance: number | string;
     currency: string; status: string; dueDate?: string | null; createdAt: string;
     feeSchedule?: { name?: string; feeDefinition?: { name?: string; code?: string; type?: string } } | null;
-    membershipPeriod?: { membershipYear: string; startsAt: string; endsAt: string } | null;
+    membershipPeriod?: { id: string; membershipYear: string; startsAt: string; endsAt: string } | null;
     allocations?: Array<{ amount: number | string; payment?: { id: string; method: string; status: string; reference?: string | null; paidAt?: string | null } }>;
   }>;
   payments: Array<{
@@ -43,7 +43,7 @@ function Tile({ label, value }: { label: string; value: string }) {
 function Header({ title, description }: { title: string; description: string }) {
   return <section className="rounded-3xl bg-white p-6 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ring-1 ring-black/[0.06] sm:p-8"><p className="text-xs font-black uppercase tracking-[0.17em] text-[#168DB8]">Finance</p><h1 className="mt-2 text-3xl font-black tracking-tight text-[#0B2633]">{title}</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-black/50">{description}</p></section>;
 }
-function Empty({ children }: { children: React.ReactNode }) {
+function Empty({ children }: { children: ReactNode }) {
   return <div className="rounded-2xl border border-dashed border-black/10 bg-white p-8 text-center text-sm text-black/45">{children}</div>;
 }
 

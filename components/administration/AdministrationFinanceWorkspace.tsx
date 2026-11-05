@@ -1,837 +1,376 @@
 "use client";
 
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { getToken, logout } from "@/lib/auth";
 
 type FinanceView =
-  | "dashboard"
-  | "fees"
-  | "payments"
-  | "history"
-  | "mpesa"
-  | "reconciliation"
-  | "receipts"
-  | "refunds"
-  | "expenses"
-  | "budgets"
-  | "ledger"
-  | "reports";
+  | "dashboard" | "fees" | "payments" | "history" | "mpesa"
+  | "reconciliation" | "receipts" | "refunds" | "expenses"
+  | "budgets" | "ledger" | "reports";
 
-type Props = {
-  view: FinanceView;
+type Props = { view: FinanceView };
+
+type MemberRecord = {
+  id?: string;
+  memberNumber?: string | null;
+  registrationNumber?: string | null;
+  user?: {
+    firstName?: string | null;
+    middleName?: string | null;
+    lastName?: string | null;
+  } | null;
 };
 
-const payments = [
-  {
-    reference: "PAY-2026-041",
-    member: "KUHRSA-STD-0042",
-    amount: "KSh 200",
-    method: "M-Pesa",
-    date: "08 Sep 2026",
-    status: "Verified",
-  },
-  {
-    reference: "PAY-2026-040",
-    member: "KUHRSA-STD-0077",
-    amount: "KSh 250",
-    method: "Manual",
-    date: "08 Sep 2026",
-    status: "Pending",
-  },
-  {
-    reference: "PAY-2026-039",
-    member: "KUHRSA-ALU-0018",
-    amount: "KSh 200",
-    method: "M-Pesa",
-    date: "07 Sep 2026",
-    status: "Verified",
-  },
-  {
-    reference: "PAY-2026-038",
-    member: "KUHRSA-STD-0114",
-    amount: "KSh 50",
-    method: "M-Pesa",
-    date: "07 Sep 2026",
-    status: "Reconciliation Required",
-  },
-];
+type PaymentRecord = {
+  id: string;
+  amount: string | number;
+  currency?: string;
+  method: string;
+  status: string;
+  reference?: string | null;
+  externalReference?: string | null;
+  description?: string | null;
+  createdAt: string;
+  paidAt?: string | null;
+  member?: MemberRecord | null;
+  allocations?: Array<{ id: string; amount: string | number }>;
+  receipt?: { id: string; receiptNumber: string; status: string } | null;
+  mpesaTransaction?: {
+    phoneNumber?: string | null;
+    merchantRequestId?: string | null;
+    checkoutRequestId?: string | null;
+    resultCode?: string | null;
+    resultDescription?: string | null;
+  } | null;
+};
 
-const expenses = [
-  {
-    reference: "EXP-026",
-    title: "Event logistics",
-    amount: "KSh 18,500",
-    category: "Events",
-    status: "Approved",
-  },
-  {
-    reference: "EXP-025",
-    title: "Printing and publicity",
-    amount: "KSh 6,800",
-    category: "Publicity",
-    status: "Pending",
-  },
-  {
-    reference: "EXP-024",
-    title: "Stationery",
-    amount: "KSh 3,450",
-    category: "Administration",
-    status: "Paid",
-  },
-];
+type FeeSchedule = {
+  id: string;
+  name: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  memberCategory?: string | null;
+  constitutionalCategory?: string | null;
+};
 
-const reconciliation = [
-  {
-    reference: "MP-7281",
-    amount: "KSh 200",
-    member: "KUHRSA-STD-0042",
-    status: "Matched",
-  },
-  {
-    reference: "MP-7280",
-    amount: "KSh 250",
-    member: "Unmatched",
-    status: "Review Required",
-  },
-  {
-    reference: "MP-7279",
-    amount: "KSh 50",
-    member: "KUHRSA-STD-0114",
-    status: "Matched",
-  },
-];
+type FeeDefinition = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  type: string;
+  isActive: boolean;
+  schedules?: FeeSchedule[];
+};
 
-const budgets = [
-  ["Membership Operations", "KSh 120,000", "KSh 84,200"],
-  ["Events & Activities", "KSh 180,000", "KSh 96,500"],
-  ["Publicity & Communication", "KSh 75,000", "KSh 41,200"],
-  ["Administration", "KSh 60,000", "KSh 27,350"],
-];
+type ReceiptRecord = {
+  id: string;
+  receiptNumber: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  issuedAt: string;
+  member?: MemberRecord | null;
+  payment?: PaymentRecord | null;
+};
 
-const ledgerEntries = [
-  ["08 Sep 2026", "Membership fees", "Credit", "KSh 200"],
-  ["08 Sep 2026", "Event logistics", "Debit", "KSh 18,500"],
-  ["08 Sep 2026", "Membership fees", "Credit", "KSh 250"],
-  ["07 Sep 2026", "Printing", "Debit", "KSh 6,800"],
-];
+type DashboardSummary = {
+  finance: {
+    outstandingBalance: string;
+    completedPaymentsAmount: string;
+    overdueCharges: number;
+    pendingPayments: number;
+    failedPayments: number;
+    cancelledPayments: number;
+  };
+};
 
-function Header({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
+  "http://localhost:3001";
+
+async function apiRequest<T>(path: string): Promise<T> {
+  const token = getToken();
+  if (!token) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => null);
+
+  if (response.status === 401) {
+    logout();
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+  if (!response.ok) {
+    const message = Array.isArray(data?.message)
+      ? data.message.join(", ")
+      : data?.message;
+    throw new Error(message || "The finance data could not be loaded.");
+  }
+  return data as T;
+}
+
+function formatCurrency(value: string | number, currency = "KES") {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  return new Intl.NumberFormat("en-KE", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-KE", { dateStyle: "medium" }).format(date);
+}
+
+function formatStatus(value?: string | null) {
+  return (value ?? "Unknown")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function memberLabel(member?: MemberRecord | null) {
+  if (!member) return "Member not linked";
+  const name = [
+    member.user?.firstName,
+    member.user?.middleName,
+    member.user?.lastName,
+  ].filter((part): part is string => Boolean(part?.trim())).join(" ").trim();
+  return name || member.memberNumber || member.registrationNumber || "Member record";
+}
+
+function memberNumber(member?: MemberRecord | null) {
+  return member?.memberNumber || member?.registrationNumber || "Number unavailable";
+}
+
+function Header({ title, description }: { title: string; description: string }) {
   return (
     <section className="rounded-3xl bg-white p-6 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ring-1 ring-black/[0.06] sm:p-8">
-      <p className="text-xs font-black uppercase tracking-[0.17em] text-[#CE26A4]">
-        Finance & Payments
-      </p>
-
-      <h1 className="mt-2 text-3xl font-black tracking-tight text-[#0B2633]">
-        {title}
-      </h1>
-
-      <p className="mt-3 max-w-3xl text-sm leading-6 text-black/50">
-        {description}
-      </p>
+      <p className="text-xs font-black uppercase tracking-[0.17em] text-[#CE26A4]">Finance & Payments</p>
+      <h1 className="mt-2 text-3xl font-black tracking-tight text-[#0B2633]">{title}</h1>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-black/50">{description}</p>
     </section>
   );
 }
 
-function StatCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-[0_6px_20px_rgba(11,38,51,0.03)]">
-      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-black/35">
-        {label}
-      </p>
-
-      <p className="mt-2 text-2xl font-black tracking-tight text-[#0B2633]">
-        {value}
-      </p>
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-black/35">{label}</p>
+      <p className="mt-2 text-2xl font-black tracking-tight text-[#0B2633]">{value}</p>
     </div>
+  );
+}
+
+function StatePanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-3xl bg-white p-7 ring-1 ring-black/[0.06]">
+      <h2 className="text-sm font-black text-[#0B2633]">{title}</h2>
+      <div className="mt-2 text-sm leading-6 text-black/50">{children}</div>
+    </section>
+  );
+}
+
+function LoadingState() {
+  return <StatePanel title="Loading finance records">Retrieving current records from the KUHRSA backend…</StatePanel>;
+}
+
+function ErrorState({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6">
+      <p className="text-sm font-black text-rose-800">Unable to load finance data</p>
+      <p className="mt-2 text-sm text-rose-700">{message}</p>
+      <button type="button" onClick={retry} className="mt-4 rounded-xl bg-[#0B2633] px-4 py-2 text-xs font-black text-white">Try Again</button>
+    </section>
   );
 }
 
 function Badge({ value }: { value: string }) {
-  const positive =
-    value === "Verified" ||
-    value === "Matched" ||
-    value === "Approved" ||
-    value === "Paid";
-
-  const attention =
-    value === "Pending" ||
-    value === "Review Required" ||
-    value === "Pending Approval" ||
-    value === "Reconciliation Required";
-
+  const positive = ["COMPLETED", "ISSUED", "ACTIVE"].includes(value);
+  const attention = ["PENDING", "PROCESSING", "PARTIALLY_PAID", "OVERDUE"].includes(value);
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${
-        positive
-          ? "bg-emerald-50 text-emerald-700"
-          : attention
-            ? "bg-[#CE26A4]/10 text-[#CE26A4]"
-            : "bg-black/[0.05] text-black/50"
-      }`}
-    >
-      {value}
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${positive ? "bg-emerald-50 text-emerald-700" : attention ? "bg-amber-50 text-amber-700" : "bg-black/[0.05] text-black/50"}`}>
+      {formatStatus(value)}
     </span>
   );
 }
 
-function PaymentsTable({
-  title,
-  data = payments,
-}: {
-  title: string;
-  data?: typeof payments;
-}) {
+function PaymentsTable({ title, records }: { title: string; records: PaymentRecord[] }) {
   return (
     <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-black text-[#0B2633]">
-            {title}
-          </h2>
-
-          <p className="mt-1 text-sm text-black/40">
-            Synthetic finance records for frontend development.
-          </p>
-        </div>
-
-        <Link
-          href="/administration/finance/reconciliation"
-          className="text-sm font-black text-[#CE26A4]"
-        >
-          Reconciliation →
-        </Link>
+      <div className="mb-5">
+        <h2 className="text-lg font-black text-[#0B2633]">{title}</h2>
+        <p className="mt-1 text-sm text-black/40">Live payment records returned by the KUHRSA finance API.</p>
       </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
-          <thead>
-            <tr className="border-b border-black/[0.06]">
-              {[
-                "Reference",
-                "Member",
-                "Amount",
-                "Method",
-                "Date",
-                "Status",
-              ].map((item) => (
-                <th
-                  key={item}
-                  className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                >
-                  {item}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {data.map((item) => (
-              <tr
-                key={item.reference}
-                className="border-b border-black/[0.05] last:border-0"
-              >
-                <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">
-                  {item.reference}
-                </td>
-
-                <td className="px-3 py-4 text-xs font-semibold text-black/55">
-                  {item.member}
-                </td>
-
-                <td className="px-3 py-4 text-sm font-black text-[#0B2633]">
-                  {item.amount}
-                </td>
-
-                <td className="px-3 py-4 text-xs text-black/55">
-                  {item.method}
-                </td>
-
-                <td className="px-3 py-4 text-xs text-black/55">
-                  {item.date}
-                </td>
-
-                <td className="px-3 py-4">
-                  <Badge value={item.status} />
-                </td>
+      {records.length === 0 ? (
+        <p className="rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/45">No payment records are currently available.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead><tr className="border-b border-black/[0.06]">
+              {["Reference", "Member", "Member Number", "Amount", "Method", "Date", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{item}</th>)}
+            </tr></thead>
+            <tbody>{records.map((item) => (
+              <tr key={item.id} className="border-b border-black/[0.05] last:border-0">
+                <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{item.reference || item.externalReference || item.id.slice(0, 8)}</td>
+                <td className="px-3 py-4 text-xs font-semibold text-black/60">{memberLabel(item.member)}</td>
+                <td className="px-3 py-4 text-xs text-black/50">{memberNumber(item.member)}</td>
+                <td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(item.amount, item.currency)}</td>
+                <td className="px-3 py-4 text-xs text-black/55">{formatStatus(item.method)}</td>
+                <td className="px-3 py-4 text-xs text-black/55">{formatDate(item.paidAt || item.createdAt)}</td>
+                <td className="px-3 py-4"><Badge value={item.status} /></td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
 
-function DashboardView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Finance Dashboard"
-        description="Administrative oversight of membership fees, payments, M-Pesa transactions, reconciliation, expenses, budgets, receipts and financial reporting."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Collections" value="KSh 186,400" />
-        <StatCard label="Membership Fees" value="KSh 142,700" />
-        <StatCard label="Outstanding" value="KSh 48,600" />
-        <StatCard label="Pending Reconciliation" value="8" />
-      </section>
-
-      <PaymentsTable title="Recent Payments" />
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <h2 className="text-lg font-black text-[#0B2633]">
-            Budget Utilization
-          </h2>
-
-          <div className="mt-5 space-y-4">
-            {budgets.map(([name, total, used]) => (
-              <div key={name}>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-black/55">
-                    {name}
-                  </span>
-
-                  <span className="text-xs font-black text-[#0B2633]">
-                    {used} / {total}
-                  </span>
-                </div>
-
-                <div className="h-2 overflow-hidden rounded-full bg-black/[0.05]">
-                  <div
-                    className="h-full rounded-full bg-[#CE26A4]"
-                    style={{
-                      width:
-                        name === "Membership Operations"
-                          ? "70%"
-                          : name === "Events & Activities"
-                            ? "54%"
-                            : name === "Publicity & Communication"
-                              ? "55%"
-                              : "46%",
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <h2 className="text-lg font-black text-[#0B2633]">
-            Finance Quick Access
-          </h2>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {[
-              ["Membership Fees", "/administration/finance/fees"],
-              ["Payments", "/administration/finance/payments"],
-              ["M-Pesa", "/administration/finance/mpesa"],
-              ["Reconciliation", "/administration/finance/reconciliation"],
-              ["Expenses", "/administration/finance/expenses"],
-              ["Reports", "/administration/finance/reports"],
-            ].map(([label, href]) => (
-              <Link
-                key={href}
-                href={href}
-                className="rounded-2xl bg-[#F8FBFC] p-4 text-sm font-bold text-[#0B2633] transition hover:bg-[#FFF7FC]"
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
+function UnavailableView({ view }: { view: FinanceView }) {
+  const content: Record<string, { title: string; description: string }> = {
+    reconciliation: {
+      title: "Reconciliation workflow is not connected",
+      description: "The backend stores M-Pesa transactions, payments and allocations, but a dedicated matching, exception-review and reconciliation workflow is not yet available. No synthetic matched/unmatched results or inactive Review controls are shown.",
+    },
+    refunds: {
+      title: "Refund management is not available",
+      description: "The inspected backend does not expose a complete refund request, approval and execution workflow. This screen will remain unavailable until that workflow is designed and implemented.",
+    },
+    expenses: {
+      title: "Expense management is not available",
+      description: "No expense records or expense approval API were found in the current backend implementation.",
+    },
+    budgets: {
+      title: "Budget management is not available",
+      description: "No persisted budget model or budget management API was found in the current backend implementation.",
+    },
+    ledger: {
+      title: "General ledger is not available",
+      description: "Payment and allocation records exist, but a general ledger and journal-entry workflow were not found. Transaction rows must not be presented as a balanced ledger.",
+    },
+    reports: {
+      title: "Financial reports are available through Reports",
+      description: "Use Reports & Analytics for the existing organization-scoped CSV/XLSX payment, charge and receipt exports. Dedicated expense, budget, reconciliation and ledger reports are not yet supported.",
+    },
+  };
+  const item = content[view];
+  return <div className="space-y-6"><Header title={item.title} description={item.description} /><StatePanel title="Backend capability status">This view is intentionally read-only and unavailable until the corresponding backend workflow exists.</StatePanel></div>;
 }
 
-function FeesView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Membership Fees"
-        description="Configure and monitor KUHRSA membership fee structures and collection."
-      />
+export default function AdministrationFinanceWorkspace({ view }: Props) {
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [fees, setFees] = useState<FeeDefinition[]>([]);
+  const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Registration Fee" value="KSh 250" />
-        <StatCard label="Annual Fee" value="KSh 200" />
-        <StatCard label="Minimum Installment" value="KSh 50" />
-      </section>
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (view === "dashboard") {
+        const [dashboard, paymentRows] = await Promise.all([
+          apiRequest<DashboardSummary>("/dashboard/administration"),
+          apiRequest<PaymentRecord[]>("/finance/payments"),
+        ]);
+        setSummary(dashboard);
+        setPayments(paymentRows.slice(0, 8));
+      } else if (view === "fees") {
+        setFees(await apiRequest<FeeDefinition[]>("/finance/fees"));
+      } else if (view === "payments" || view === "history" || view === "mpesa") {
+        setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
+      } else if (view === "receipts") {
+        setReceipts(await apiRequest<ReceiptRecord[]>("/finance/receipts"));
+      }
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "The finance data could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }, [view]);
 
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <h2 className="text-lg font-black text-[#0B2633]">
-          Fee Configuration
-        </h2>
+  useEffect(() => { void load(); }, [load]);
 
-        <div className="mt-5 space-y-3">
-          {[
-            ["Registration", "KSh 250", "One-time registration fee"],
-            ["Annual Membership", "KSh 200", "Configurable annual fee"],
-            ["Minimum Installment", "KSh 50", "Minimum accepted installment"],
-          ].map(([name, amount, description]) => (
-            <div
-              key={name}
-              className="flex flex-col gap-3 rounded-2xl bg-[#F8FBFC] p-4 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {name}
-                </p>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {description}
-                </p>
-              </div>
-
-              <span className="text-sm font-black text-[#CE26A4]">
-                {amount}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
+  const mpesaPayments = useMemo(
+    () => payments.filter((item) => item.method === "MPESA"),
+    [payments],
   );
-}
 
-function PaymentsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Payments"
-        description="Review membership and other KUHRSA payment transactions."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Today" value="KSh 6,450" />
-        <StatCard label="This Month" value="KSh 84,700" />
-        <StatCard label="Pending" value="12" />
-      </section>
-
-      <PaymentsTable title="Payment Register" />
-    </div>
-  );
-}
-
-function HistoryView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Payment History"
-        description="Historical record of financial transactions."
-      />
-
-      <PaymentsTable title="Historical Payments" />
-    </div>
-  );
-}
-
-function MpesaView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="M-Pesa Transactions"
-        description="Administrative view of incoming M-Pesa transaction records."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Transactions Today" value="42" />
-        <StatCard label="Value Today" value="KSh 8,450" />
-        <StatCard label="Unreconciled" value="8" />
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="space-y-3">
-          {reconciliation.map((item) => (
-            <div
-              key={item.reference}
-              className="rounded-2xl bg-[#F8FBFC] p-4"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-black text-[#0B2633]">
-                    {item.reference}
-                  </p>
-
-                  <p className="mt-1 text-xs text-black/40">
-                    {item.member} • {item.amount}
-                  </p>
-                </div>
-
-                <Badge value={item.status} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-xs font-black uppercase tracking-[0.12em] text-amber-700">
-          Development Mode
-        </p>
-
-        <p className="mt-2 text-sm leading-6 text-amber-800">
-          No live M-Pesa transactions are processed from this frontend. Daraja
-          integration and reconciliation will be connected later.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function ReconciliationView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Payment Reconciliation"
-        description="Match incoming payment transactions to KUHRSA member records."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Matched" value="34" />
-        <StatCard label="Needs Review" value="8" />
-        <StatCard label="Total Value" value="KSh 8,450" />
-      </section>
-
-      <section className="space-y-3">
-        {reconciliation.map((item) => (
-          <div
-            key={item.reference}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {item.reference}
-                </p>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {item.member} • {item.amount}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Badge value={item.status} />
-
-                {item.status === "Review Required" && (
-                  <button
-                    type="button"
-                    className="rounded-xl bg-[#0B2633] px-4 py-2 text-xs font-black text-white"
-                  >
-                    Review
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function ReceiptsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Receipts"
-        description="Review and manage payment receipt records."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Receipts Issued" value="684" />
-        <StatCard label="Pending" value="12" />
-        <StatCard label="This Month" value="84" />
-      </section>
-
-      <PaymentsTable title="Receipt-Linked Payments" />
-    </div>
-  );
-}
-
-function RefundsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Refunds"
-        description="Review and manage refund requests and approved refunds."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Pending Requests" value="3" />
-        <StatCard label="Approved" value="8" />
-        <StatCard label="Total This Period" value="KSh 4,250" />
-      </section>
-
-      <section className="space-y-3">
-        {[
-          ["REF-009", "KSh 500", "Membership overpayment", "Pending"],
-          ["REF-008", "KSh 250", "Duplicate payment", "Approved"],
-          ["REF-007", "KSh 300", "Event cancellation", "Paid"],
-        ].map(([reference, amount, reason, status]) => (
-          <div
-            key={reference}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {reference}
-                </p>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {reason} • {amount}
-                </p>
-              </div>
-
-              <Badge value={status} />
-            </div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function ExpensesView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Expenses"
-        description="Track KUHRSA operational expenditures."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total Expenses" value="KSh 28,750" />
-        <StatCard label="Pending Approval" value="6" />
-        <StatCard label="This Month" value="KSh 42,300" />
-      </section>
-
-      <section className="space-y-3">
-        {expenses.map((item) => (
-          <div
-            key={item.reference}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {item.title}
-                </p>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {item.reference} • {item.category} • {item.amount}
-                </p>
-              </div>
-
-              <Badge value={item.status} />
-            </div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function BudgetsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Budgets"
-        description="Plan and monitor KUHRSA budgets across operational areas."
-      />
-
-      <section className="space-y-4">
-        {budgets.map(([name, total, used]) => (
-          <div
-            key={name}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-black text-[#0B2633]">
-                {name}
-              </p>
-
-              <p className="text-xs font-bold text-black/45">
-                {used} used of {total}
-              </p>
-            </div>
-
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-black/[0.05]">
-              <div
-                className="h-full rounded-full bg-[#CE26A4]"
-                style={{
-                  width:
-                    name === "Membership Operations"
-                      ? "70%"
-                      : name === "Events & Activities"
-                        ? "54%"
-                        : name === "Publicity & Communication"
-                          ? "55%"
-                          : "46%",
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function LedgerView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Financial Ledger"
-        description="Administrative ledger of synthetic KUHRSA financial entries."
-      />
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["Date", "Description", "Type", "Amount"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {ledgerEntries.map(([date, description, type, amount]) => (
-                <tr
-                  key={`${date}-${description}-${amount}`}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-xs text-black/55 first:pl-0">
-                    {date}
-                  </td>
-
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633]">
-                    {description}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/55">
-                    {type}
-                  </td>
-
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633]">
-                    {amount}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ReportsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Financial Reports"
-        description="Administrative financial reporting and analysis."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Collections" value="KSh 186,400" />
-        <StatCard label="Expenses" value="KSh 42,300" />
-        <StatCard label="Outstanding" value="KSh 48,600" />
-        <StatCard label="Net Position" value="KSh 144,100" />
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <h2 className="text-lg font-black text-[#0B2633]">
-          Available Reports
-        </h2>
-
-        <div className="mt-5 space-y-3">
-          {[
-            "Membership fee collection report",
-            "Payment transaction report",
-            "M-Pesa reconciliation report",
-            "Receipt report",
-            "Refund report",
-            "Expense report",
-            "Budget utilization report",
-            "Financial ledger report",
-          ].map((item) => (
-            <div
-              key={item}
-              className="rounded-2xl bg-[#F8FBFC] p-4 text-sm font-bold text-[#0B2633]"
-            >
-              {item}
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-export default function AdministrationFinanceWorkspace({
-  view,
-}: Props) {
-  switch (view) {
-    case "fees":
-      return <FeesView />;
-
-    case "payments":
-      return <PaymentsView />;
-
-    case "history":
-      return <HistoryView />;
-
-    case "mpesa":
-      return <MpesaView />;
-
-    case "reconciliation":
-      return <ReconciliationView />;
-
-    case "receipts":
-      return <ReceiptsView />;
-
-    case "refunds":
-      return <RefundsView />;
-
-    case "expenses":
-      return <ExpensesView />;
-
-    case "budgets":
-      return <BudgetsView />;
-
-    case "ledger":
-      return <LedgerView />;
-
-    case "reports":
-      return <ReportsView />;
-
-    case "dashboard":
-    default:
-      return <DashboardView />;
+  if (["reconciliation", "refunds", "expenses", "budgets", "ledger", "reports"].includes(view)) {
+    return <UnavailableView view={view} />;
   }
+  if (loading) return <div className="space-y-6"><Header title="Finance & Payments" description="Live finance information from the KUHRSA backend." /><LoadingState /></div>;
+  if (error) return <div className="space-y-6"><Header title="Finance & Payments" description="Organization-scoped finance records." /><ErrorState message={error} retry={() => void load()} /></div>;
+
+  if (view === "fees") {
+    return (
+      <div className="space-y-6">
+        <Header title="Membership Fees" description="Fee definitions and effective schedules currently stored by the KUHRSA backend. This view is read-only." />
+        {fees.length === 0 ? <StatePanel title="No fee definitions">No fee definitions have been configured for this organization.</StatePanel> : fees.map((fee) => (
+          <section key={fee.id} className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-black uppercase tracking-wider text-[#CE26A4]">{fee.code} · {formatStatus(fee.type)}</p><h2 className="mt-2 text-xl font-black text-[#0B2633]">{fee.name}</h2>{fee.description ? <p className="mt-1 text-sm text-black/45">{fee.description}</p> : null}</div>
+              <Badge value={fee.isActive ? "ACTIVE" : "INACTIVE"} />
+            </div>
+            <div className="mt-5 space-y-3">
+              {(fee.schedules ?? []).length === 0 ? <p className="rounded-xl bg-[#F8FBFC] p-4 text-sm text-black/45">No fee schedules are attached to this definition.</p> : fee.schedules?.map((schedule) => (
+                <div key={schedule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#F8FBFC] p-4">
+                  <div><p className="text-sm font-bold text-[#0B2633]">{schedule.name}</p><p className="mt-1 text-xs text-black/45">{schedule.memberCategory ? formatStatus(schedule.memberCategory) : "All member categories"} · Effective {formatDate(schedule.effectiveFrom)}{schedule.effectiveTo ? ` – ${formatDate(schedule.effectiveTo)}` : " onward"}</p></div>
+                  <div className="flex items-center gap-3"><p className="text-sm font-black text-[#0B2633]">{formatCurrency(schedule.amount, schedule.currency)}</p><Badge value={schedule.status} /></div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  if (view === "payments" || view === "history") {
+    return <div className="space-y-6"><Header title={view === "history" ? "Payment History" : "Payments"} description="Live organization-scoped payment transactions from the finance API." /><PaymentsTable title={view === "history" ? "Payment History" : "Payment Register"} records={payments} /></div>;
+  }
+
+  if (view === "mpesa") {
+    return <div className="space-y-6"><Header title="M-Pesa Transactions" description="M-Pesa payment records and provider transaction references returned by the KUHRSA backend. This is a read-only transaction view, not a reconciliation tool." /><section className="grid gap-4 sm:grid-cols-3"><StatCard label="M-Pesa Transactions" value={mpesaPayments.length} /><StatCard label="Completed" value={mpesaPayments.filter((item) => item.status === "COMPLETED").length} /><StatCard label="Pending / Processing" value={mpesaPayments.filter((item) => ["PENDING", "PROCESSING"].includes(item.status)).length} /></section><PaymentsTable title="M-Pesa Payment Register" records={mpesaPayments} />{mpesaPayments.length > 0 ? <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><h2 className="text-lg font-black text-[#0B2633]">Provider references</h2><div className="mt-4 space-y-3">{mpesaPayments.map((item) => <div key={item.id} className="rounded-2xl bg-[#F8FBFC] p-4"><p className="text-sm font-bold text-[#0B2633]">{item.reference || item.id}</p><p className="mt-1 text-xs text-black/45">Checkout: {item.mpesaTransaction?.checkoutRequestId || "Not available"} · Merchant: {item.mpesaTransaction?.merchantRequestId || "Not available"}</p><p className="mt-1 text-xs text-black/45">Phone: {item.mpesaTransaction?.phoneNumber || "Not available"} · Result: {item.mpesaTransaction?.resultDescription || "No callback result recorded"}</p></div>)}</div></section> : null}</div>;
+  }
+
+  if (view === "receipts") {
+    return <div className="space-y-6"><Header title="Receipts" description="Issued receipt records returned by the KUHRSA backend. Receipt issuance and voiding remain permission-controlled backend operations." /><section className="grid gap-4 sm:grid-cols-3"><StatCard label="Receipts" value={receipts.length} /><StatCard label="Issued" value={receipts.filter((item) => item.status === "ISSUED").length} /><StatCard label="Voided" value={receipts.filter((item) => item.status === "VOIDED").length} /></section><section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Receipt", "Member", "Member Number", "Payment", "Amount", "Issued", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-wider text-black/35 first:pl-0">{item}</th>)}</tr></thead><tbody>{receipts.map((item) => <tr key={item.id} className="border-b border-black/[0.05] last:border-0"><td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{item.receiptNumber}</td><td className="px-3 py-4 text-xs text-black/60">{memberLabel(item.member)}</td><td className="px-3 py-4 text-xs text-black/50">{memberNumber(item.member)}</td><td className="px-3 py-4 text-xs text-black/50">{item.payment?.reference || item.payment?.id || "—"}</td><td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(item.amount, item.currency)}</td><td className="px-3 py-4 text-xs text-black/50">{formatDate(item.issuedAt)}</td><td className="px-3 py-4"><Badge value={item.status} /></td></tr>)}</tbody></table></div>{receipts.length === 0 ? <p className="py-5 text-sm text-black/45">No receipt records are currently available.</p> : null}</section></div>;
+  }
+
+  const finance = summary?.finance;
+  return (
+    <div className="space-y-6">
+      <Header title="Finance Dashboard" description="Live financial totals from the organization-scoped administration dashboard and recent payment records." />
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Completed Collections" value={formatCurrency(finance?.completedPaymentsAmount ?? 0)} />
+        <StatCard label="Outstanding Charges" value={formatCurrency(finance?.outstandingBalance ?? 0)} />
+        <StatCard label="Overdue Charges" value={finance?.overdueCharges ?? 0} />
+        <StatCard label="Pending Payments" value={finance?.pendingPayments ?? 0} />
+      </section>
+      <section className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Failed Payments" value={finance?.failedPayments ?? 0} />
+        <StatCard label="Cancelled Payments" value={finance?.cancelledPayments ?? 0} />
+        <StatCard label="Recent Transactions Loaded" value={payments.length} />
+      </section>
+      <PaymentsTable title="Recent Payments" records={payments} />
+    </div>
+  );
 }

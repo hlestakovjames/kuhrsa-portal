@@ -381,6 +381,17 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [feeSaving, setFeeSaving] = useState(false);
   const [feeActionError, setFeeActionError] = useState<string | null>(null);
   const [feeActionSuccess, setFeeActionSuccess] = useState<string | null>(null);
+  const [editingFeeId, setEditingFeeId] = useState<string | null>(null);
+  const [editFeeName, setEditFeeName] = useState("");
+  const [editFeeDescription, setEditFeeDescription] = useState("");
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [editScheduleName, setEditScheduleName] = useState("");
+  const [editScheduleAmount, setEditScheduleAmount] = useState("");
+  const [editScheduleStatus, setEditScheduleStatus] = useState("DRAFT");
+  const [editScheduleFrom, setEditScheduleFrom] = useState("");
+  const [editScheduleTo, setEditScheduleTo] = useState("");
+  const [editScheduleMemberCategory, setEditScheduleMemberCategory] = useState("");
+  const [editScheduleConstitutionalCategory, setEditScheduleConstitutionalCategory] = useState("");
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
   const [charges, setCharges] = useState<ChargeRecord[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState("");
@@ -494,6 +505,70 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
       await load();
     } catch (actionError) {
       setFeeActionError(actionError instanceof Error ? actionError.message : "The fee schedule could not be created.");
+    } finally {
+      setFeeSaving(false);
+    }
+  }
+
+  function beginFeeEdit(fee: FeeDefinition) {
+    setEditingFeeId(fee.id);
+    setEditFeeName(fee.name);
+    setEditFeeDescription(fee.description ?? "");
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+  }
+
+  async function saveFeeDefinition(fee: FeeDefinition) {
+    setFeeSaving(true);
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+    try {
+      await apiWrite(`/finance/fees/${encodeURIComponent(fee.id)}`, "PATCH", {
+        name: editFeeName.trim(),
+        description: editFeeDescription.trim(),
+      });
+      setEditingFeeId(null);
+      setFeeActionSuccess("Fee definition updated.");
+      await load();
+    } catch (actionError) {
+      setFeeActionError(actionError instanceof Error ? actionError.message : "The fee definition could not be updated.");
+    } finally {
+      setFeeSaving(false);
+    }
+  }
+
+  function beginScheduleEdit(schedule: FeeSchedule) {
+    setEditingScheduleId(schedule.id);
+    setEditScheduleName(schedule.name);
+    setEditScheduleAmount(String(schedule.amount));
+    setEditScheduleStatus(schedule.status);
+    setEditScheduleFrom(schedule.effectiveFrom.slice(0, 10));
+    setEditScheduleTo(schedule.effectiveTo?.slice(0, 10) ?? "");
+    setEditScheduleMemberCategory(schedule.memberCategory ?? "");
+    setEditScheduleConstitutionalCategory(schedule.constitutionalCategory ?? "");
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+  }
+
+  async function saveFeeSchedule(schedule: FeeSchedule) {
+    setFeeSaving(true);
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+    try {
+      await apiWrite(`/finance/fees/${encodeURIComponent(schedule.id)}/schedules`, "PATCH", {
+        name: editScheduleName.trim(),
+        amount: Number(editScheduleAmount),
+        status: editScheduleStatus,
+        effectiveFrom: editScheduleFrom,
+        ...(editScheduleTo ? { effectiveTo: editScheduleTo } : {}),
+        ...(editScheduleMemberCategory ? { memberCategory: editScheduleMemberCategory } : {}),
+        ...(editScheduleConstitutionalCategory ? { constitutionalCategory: editScheduleConstitutionalCategory } : {}),
+      });
+      setEditingScheduleId(null);
+      setFeeActionSuccess("Fee schedule updated. The backend rechecked date validity and overlapping applicability.");
+      await load();
+    } catch (actionError) {
+      setFeeActionError(actionError instanceof Error ? actionError.message : "The fee schedule could not be updated.");
     } finally {
       setFeeSaving(false);
     }
@@ -649,13 +724,26 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
           <section key={fee.id} className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-xs font-black uppercase tracking-wider text-[#CE26A4]">{fee.code} · {formatStatus(fee.type)}</p><h2 className="mt-2 text-xl font-black text-[#0B2633]">{fee.name}</h2>{fee.description ? <p className="mt-1 text-sm text-black/45">{fee.description}</p> : null}</div>
-              <div className="flex items-center gap-2"><Badge value={fee.isActive ? "ACTIVE" : "INACTIVE"} /><button type="button" disabled={feeSaving} onClick={() => void toggleFeeDefinition(fee)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-black text-[#0B2633] disabled:opacity-50">{fee.isActive ? "Deactivate" : "Activate"}</button></div>
+              <div className="flex items-center gap-2"><Badge value={fee.isActive ? "ACTIVE" : "INACTIVE"} /><button type="button" disabled={feeSaving} onClick={() => beginFeeEdit(fee)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-black text-[#0B2633] disabled:opacity-50">Edit</button><button type="button" disabled={feeSaving} onClick={() => void toggleFeeDefinition(fee)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-black text-[#0B2633] disabled:opacity-50">{fee.isActive ? "Deactivate" : "Activate"}</button></div>
             </div>
+            {editingFeeId === fee.id ? <form onSubmit={(event) => { event.preventDefault(); void saveFeeDefinition(fee); }} className="mt-4 grid gap-3 rounded-2xl bg-[#F8FBFC] p-4 md:grid-cols-2"><label className="text-xs font-bold text-black/60">Fee name<input required maxLength={150} value={editFeeName} onChange={(event) => setEditFeeName(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label><label className="text-xs font-bold text-black/60">Description<input maxLength={500} value={editFeeDescription} onChange={(event) => setEditFeeDescription(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label><div className="flex gap-2 md:col-span-2"><button disabled={feeSaving} className="rounded-xl bg-[#0B2633] px-4 py-2 text-xs font-black text-white disabled:opacity-50">{feeSaving ? "Saving…" : "Save fee definition"}</button><button type="button" onClick={() => setEditingFeeId(null)} className="rounded-xl border border-black/10 px-4 py-2 text-xs font-black text-[#0B2633]">Cancel</button></div></form> : null}
             <div className="mt-5 space-y-3">
               {(fee.schedules ?? []).length === 0 ? <p className="rounded-xl bg-[#F8FBFC] p-4 text-sm text-black/45">No fee schedules are attached to this definition.</p> : fee.schedules?.map((schedule) => (
-                <div key={schedule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#F8FBFC] p-4">
-                  <div><p className="text-sm font-bold text-[#0B2633]">{schedule.name}</p><p className="mt-1 text-xs text-black/45">{schedule.memberCategory ? formatStatus(schedule.memberCategory) : "All member categories"} · Effective {formatDate(schedule.effectiveFrom)}{schedule.effectiveTo ? ` – ${formatDate(schedule.effectiveTo)}` : " onward"}</p></div>
-                  <div className="flex items-center gap-3"><p className="text-sm font-black text-[#0B2633]">{formatCurrency(schedule.amount, schedule.currency)}</p><Badge value={schedule.status} /></div>
+                <div key={schedule.id} className="rounded-2xl bg-[#F8FBFC] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="text-sm font-bold text-[#0B2633]">{schedule.name}</p><p className="mt-1 text-xs text-black/45">{schedule.memberCategory ? formatStatus(schedule.memberCategory) : "All member categories"} · {schedule.constitutionalCategory ? formatStatus(schedule.constitutionalCategory) : "All constitutional categories"} · Effective {formatDate(schedule.effectiveFrom)}{schedule.effectiveTo ? ` – ${formatDate(schedule.effectiveTo)}` : " onward"}</p></div>
+                    <div className="flex items-center gap-3"><p className="text-sm font-black text-[#0B2633]">{formatCurrency(schedule.amount, schedule.currency)}</p><Badge value={schedule.status} /><button type="button" disabled={feeSaving || ["CANCELLED", "EXPIRED"].includes(schedule.status)} onClick={() => beginScheduleEdit(schedule)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-black text-[#0B2633] disabled:opacity-40">Edit</button></div>
+                  </div>
+                  {editingScheduleId === schedule.id ? <form onSubmit={(event) => { event.preventDefault(); void saveFeeSchedule(schedule); }} className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <label className="text-xs font-bold text-black/60">Schedule name<input required maxLength={150} value={editScheduleName} onChange={(event) => setEditScheduleName(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label>
+                    <label className="text-xs font-bold text-black/60">Amount (KES)<input required type="number" min="0" step="0.01" value={editScheduleAmount} onChange={(event) => setEditScheduleAmount(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label>
+                    <label className="text-xs font-bold text-black/60">Status<select value={editScheduleStatus} onChange={(event) => setEditScheduleStatus(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"><option value="DRAFT">Draft</option><option value="ACTIVE">Active</option><option value="EXPIRED">Expired</option><option value="CANCELLED">Cancelled</option></select></label>
+                    <label className="text-xs font-bold text-black/60">Effective from<input required type="date" value={editScheduleFrom} onChange={(event) => setEditScheduleFrom(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label>
+                    <label className="text-xs font-bold text-black/60">Effective to<input type="date" value={editScheduleTo} onChange={(event) => setEditScheduleTo(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm" /></label>
+                    <label className="text-xs font-bold text-black/60">Member category<select value={editScheduleMemberCategory} onChange={(event) => setEditScheduleMemberCategory(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"><option value="">All categories</option><option value="STUDENT">Student</option><option value="ALUMNI">Alumni</option><option value="LECTURER">Lecturer</option></select></label>
+                    <label className="text-xs font-bold text-black/60">Constitutional category<select value={editScheduleConstitutionalCategory} onChange={(event) => setEditScheduleConstitutionalCategory(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"><option value="">All categories</option><option value="ORDINARY">Ordinary</option><option value="ASSOCIATE">Associate</option><option value="ALUMNI">Alumni</option><option value="HONORARY">Honorary</option></select></label>
+                    <div className="flex items-end gap-2 xl:col-span-3"><button disabled={feeSaving} className="rounded-xl bg-[#0B2633] px-4 py-2 text-xs font-black text-white disabled:opacity-50">{feeSaving ? "Saving…" : "Save schedule"}</button><button type="button" onClick={() => setEditingScheduleId(null)} className="rounded-xl border border-black/10 px-4 py-2 text-xs font-black text-[#0B2633]">Cancel</button></div>
+                  </form> : null}
                 </div>
               ))}
             </div>

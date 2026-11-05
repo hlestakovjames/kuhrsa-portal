@@ -89,7 +89,7 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
       setPaymentSubmitting(false);
       return;
     }
-    if (!/^(%4|\u002b254|0)7\d{8}$/.test(paymentPhone.trim())) {
+    if (!/^(?:254|\+254|0)7\d{8}$/.test(paymentPhone.trim())) {
       setPaymentError("Enter a valid Kenyan mobile number, e.g. 0712345678.");
       setPaymentSubmitting(false);
       return;

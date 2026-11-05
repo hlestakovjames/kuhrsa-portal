@@ -614,6 +614,40 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     }
   }
 
+  async function submitMemberCharge(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!chargeMemberId || !chargeScheduleId || !chargeAmount) {
+      setChargeError("Select a member and fee schedule, then enter an amount.");
+      return;
+    }
+    const amount = Number(chargeAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setChargeError("Enter a valid non-negative amount.");
+      return;
+    }
+    setChargeSaving(true);
+    setChargeError(null);
+    setChargeSuccess(null);
+    try {
+      await apiWrite("/finance/charges", "POST", {
+        memberId: chargeMemberId,
+        feeScheduleId: chargeScheduleId,
+        amountDue: amount,
+        ...(chargeDescription.trim() ? { description: chargeDescription.trim() } : {}),
+        ...(chargeDueDate ? { dueDate: chargeDueDate } : {}),
+      });
+      setChargeSuccess("Member charge created. No payment or allocation was created.");
+      setChargeAmount("");
+      setChargeDescription("");
+      setChargeDueDate("");
+      await load();
+    } catch (actionError) {
+      setChargeError(actionError instanceof Error ? actionError.message : "The member charge could not be created.");
+    } finally {
+      setChargeSaving(false);
+    }
+  }
+
   async function submitAllocation() {
     if (!selectedPaymentId || !selectedChargeId || !allocationAmount) {
       setAllocationError("Select a completed payment, an outstanding charge and an allocation amount.");
@@ -659,6 +693,37 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         <StatePanel title="Scope of this workflow">
           This connects the existing payment-allocation API. It allocates already-recorded completed payments to member charges; it does not independently match bank statements, verify M-Pesa callbacks or approve unverified transactions.
         </StatePanel>
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+          <h2 className="text-lg font-black text-[#0B2633]">Create a member charge</h2>
+          <p className="mt-1 text-sm text-black/45">Create an individual charge for a member using a configured fee schedule. The amount is explicitly confirmed here; schedules do not automatically bill members.</p>
+          {chargeSourceWarning ? <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{chargeSourceWarning}</p> : null}
+          {chargeError ? <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{chargeError}</p> : null}
+          {chargeSuccess ? <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{chargeSuccess}</p> : null}
+          <form onSubmit={submitMemberCharge} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="text-xs font-bold text-black/60">Member
+              <select required value={chargeMemberId} onChange={(event) => setChargeMemberId(event.target.value)} disabled={Boolean(chargeSourceWarning)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm">
+                <option value="">Select member</option>
+                {chargeMembers.filter((member) => member.id).map((member) => <option key={member.id} value={member.id}>{memberLabel(member)} · {memberNumber(member)}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-black/60">Fee schedule
+              <select required value={chargeScheduleId} onChange={(event) => { const id = event.target.value; setChargeScheduleId(id); const schedule = chargeFees.flatMap((fee) => fee.schedules || []).find((item) => item.id === id); if (schedule) setChargeAmount(String(schedule.amount)); }} disabled={Boolean(chargeSourceWarning)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm">
+                <option value="">Select fee schedule</option>
+                {chargeFees.map((fee) => (fee.schedules || []).filter((schedule) => !["CANCELLED", "EXPIRED"].includes(schedule.status)).map((schedule) => <option key={schedule.id} value={schedule.id}>{fee.name} · {schedule.name} · {formatCurrency(schedule.amount, schedule.currency)}</option>))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-black/60">Amount due
+              <input required type="number" min="0" step="0.01" value={chargeAmount} onChange={(event) => setChargeAmount(event.target.value)} placeholder="Enter approved amount" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" />
+            </label>
+            <label className="text-xs font-bold text-black/60">Description (optional)
+              <input maxLength={500} value={chargeDescription} onChange={(event) => setChargeDescription(event.target.value)} placeholder="Charge description" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" />
+            </label>
+            <label className="text-xs font-bold text-black/60">Due date (optional)
+              <input type="date" value={chargeDueDate} onChange={(event) => setChargeDueDate(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" />
+            </label>
+            <div className="flex items-end"><button type="submit" disabled={chargeSaving || Boolean(chargeSourceWarning) || !chargeMembers.length || !chargeFees.length} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-40">{chargeSaving ? "Creating…" : "Create member charge"}</button></div>
+          </form>
+        </section>
         <section className="grid gap-4 sm:grid-cols-3">
           <StatCard label="Completed Payments" value={completedPayments.length} />
           <StatCard label="Outstanding Charges" value={charges.filter((item) => Number(item.balance) > 0 && !["CANCELLED", "WAIVED"].includes(item.status)).length} />

@@ -394,6 +394,17 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [editScheduleConstitutionalCategory, setEditScheduleConstitutionalCategory] = useState("");
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
   const [charges, setCharges] = useState<ChargeRecord[]>([]);
+  const [chargeMembers, setChargeMembers] = useState<MemberRecord[]>([]);
+  const [chargeFees, setChargeFees] = useState<FeeDefinition[]>([]);
+  const [chargeMemberId, setChargeMemberId] = useState("");
+  const [chargeScheduleId, setChargeScheduleId] = useState("");
+  const [chargeAmount, setChargeAmount] = useState("");
+  const [chargeDescription, setChargeDescription] = useState("");
+  const [chargeDueDate, setChargeDueDate] = useState("");
+  const [chargeSaving, setChargeSaving] = useState(false);
+  const [chargeError, setChargeError] = useState<string | null>(null);
+  const [chargeSuccess, setChargeSuccess] = useState<string | null>(null);
+  const [chargeSourceWarning, setChargeSourceWarning] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState("");
   const [selectedChargeId, setSelectedChargeId] = useState("");
   const [allocationAmount, setAllocationAmount] = useState("");
@@ -428,6 +439,20 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         ]);
         setPayments(paymentRows);
         setCharges(chargeRows);
+        const [memberResult, feeResult] = await Promise.allSettled([
+          apiRequest<MemberRecord[]>("/members"),
+          apiRequest<FeeDefinition[]>("/finance/fees"),
+        ]);
+        if (memberResult.status === "fulfilled") {
+          setChargeMembers(memberResult.value);
+        } else {
+          setChargeSourceWarning("Member records could not be loaded; charge creation is unavailable.");
+        }
+        if (feeResult.status === "fulfilled") {
+          setChargeFees(feeResult.value);
+        } else {
+          setChargeSourceWarning("Fee schedules could not be loaded; charge creation is unavailable.");
+        }
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "The finance data could not be loaded.");

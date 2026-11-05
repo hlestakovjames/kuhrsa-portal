@@ -442,8 +442,8 @@ function FinancialPeriodRow({ period, reload }: { period: FinancialPeriod; reloa
     <td className="px-3 py-4"><Badge value={period.status} /></td>
     <td className="min-w-[220px] px-3 py-4"><div className="flex flex-wrap gap-2">
       <button type="button" disabled={busy || locked} onClick={() => setEditing(!editing)} className="rounded-lg border px-3 py-2 text-[10px] font-bold disabled:opacity-40">Edit</button>
-      {period.status === "OPEN" ? <button type="button" disabled={busy} onClick={() => void act(base + "/close", "POST", {})} className="rounded-lg border px-3 py-2 text-[10px] font-bold">Close</button> : null}
-      {period.status === "CLOSED" ? <button type="button" disabled={busy} onClick={() => void act(base + "/lock", "POST", {})} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Lock</button> : null}
+      {period.status === "OPEN" ? <button type="button" disabled={busy} onClick={() => { if (window.confirm("Close this financial period? It will no longer be editable.")) void act(base + "/close", "POST", {}); }} className="rounded-lg border px-3 py-2 text-[10px] font-bold">Close</button> : null}
+      {period.status === "CLOSED" ? <button type="button" disabled={busy} onClick={() => { if (window.confirm("Lock this closed financial period? A locked period cannot be modified.")) void act(base + "/lock", "POST", {}); }} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Lock</button> : null}
     </div>
     {editing && !locked ? <div className="mt-2 space-y-2">
       <input value={name} onChange={e => setName(e.target.value)} maxLength={150} className="w-full rounded-lg border px-2 py-2 text-xs" aria-label="Financial period name" />

@@ -70,6 +70,7 @@ type FeeDefinition = {
 type ChargeRecord = {
   id: string;
   memberId: string;
+  member?: MemberRecord | null;
   amountDue: string | number;
   amountPaid: string | number;
   balance: string | number;
@@ -292,6 +293,36 @@ function PaymentsTable({ title, records }: { title: string; records: PaymentReco
                 <td className="px-3 py-4 text-xs text-black/55">{formatStatus(item.method)}</td>
                 <td className="px-3 py-4 text-xs text-black/55">{formatDate(item.paidAt || item.createdAt)}</td>
                 <td className="px-3 py-4"><Badge value={item.status} /></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ChargesTable({ records }: { records: ChargeRecord[] }) {
+  return (
+    <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+      <div className="mb-5">
+        <h2 className="text-lg font-black text-[#0B2633]">Member charge register</h2>
+        <p className="mt-1 text-sm text-black/40">Live charge records, including the linked member name and member number.</p>
+      </div>
+      {records.length === 0 ? <p className="rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/45">No member charges are currently available.</p> : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead><tr className="border-b border-black/[0.06]">{["Member", "Member Number", "Fee", "Amount Due", "Paid", "Balance", "Due Date", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{item}</th>)}</tr></thead>
+            <tbody>{records.map((charge) => (
+              <tr key={charge.id} className="border-b border-black/[0.05] last:border-0">
+                <td className="px-3 py-4 text-xs font-semibold text-black/60 first:pl-0">{memberLabel(charge.member)}</td>
+                <td className="px-3 py-4 text-xs text-black/50">{memberNumber(charge.member)}</td>
+                <td className="px-3 py-4 text-xs text-black/55">{charge.feeSchedule?.feeDefinition?.name || charge.feeSchedule?.name || charge.description || "Member charge"}</td>
+                <td className="px-3 py-4 text-xs font-bold text-[#0B2633]">{formatCurrency(charge.amountDue, charge.currency)}</td>
+                <td className="px-3 py-4 text-xs text-black/55">{formatCurrency(charge.amountPaid, charge.currency)}</td>
+                <td className="px-3 py-4 text-xs font-black text-[#0B2633]">{formatCurrency(charge.balance, charge.currency)}</td>
+                <td className="px-3 py-4 text-xs text-black/50">{formatDate(charge.dueDate)}</td>
+                <td className="px-3 py-4"><Badge value={charge.status} /></td>
               </tr>
             ))}</tbody>
           </table>
@@ -577,6 +608,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
             ))}
           </div>
         </section>
+        <ChargesTable records={charges} />
       </div>
     );
   }

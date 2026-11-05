@@ -131,6 +131,29 @@ async function apiRequest<T>(path: string): Promise<T> {
   return data as T;
 }
 
+async function apiWrite<T>(path: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
+  const token = getToken();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+  const response = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => null);
+  if (response.status === 401) {
+    logout();
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+  if (!response.ok) {
+    const message = Array.isArray(data?.message) ? data.message.join(", ") : data?.message;
+    throw new Error(message || "The finance configuration could not be saved.");
+  }
+  return data as T;
+}
+
 async function apiMutation<T>(path: string, body: unknown): Promise<T> {
   const token = getToken();
   if (!token) throw new Error("Your session has expired. Please sign in again.");
@@ -312,6 +335,21 @@ function UnavailableView({ view }: { view: FinanceView }) {
 export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [fees, setFees] = useState<FeeDefinition[]>([]);
+  const [feeCode, setFeeCode] = useState("");
+  const [feeName, setFeeName] = useState("");
+  const [feeDescription, setFeeDescription] = useState("");
+  const [feeType, setFeeType] = useState("ANNUAL_MEMBERSHIP");
+  const [scheduleFeeId, setScheduleFeeId] = useState("");
+  const [scheduleName, setScheduleName] = useState("");
+  const [scheduleAmount, setScheduleAmount] = useState("");
+  const [scheduleStatus, setScheduleStatus] = useState("DRAFT");
+  const [scheduleFrom, setScheduleFrom] = useState("");
+  const [scheduleTo, setScheduleTo] = useState("");
+  const [scheduleMemberCategory, setScheduleMemberCategory] = useState("");
+  const [scheduleConstitutionalCategory, setScheduleConstitutionalCategory] = useState("");
+  const [feeSaving, setFeeSaving] = useState(false);
+  const [feeActionError, setFeeActionError] = useState<string | null>(null);
+  const [feeActionSuccess, setFeeActionSuccess] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
   const [charges, setCharges] = useState<ChargeRecord[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState("");
@@ -375,6 +413,75 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     charge.currency === selectedPayment.currency &&
     !(selectedPayment.allocations ?? []).some((allocation) => allocation.chargeId === charge.id),
   );
+
+  async function submitFeeDefinition(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeeSaving(true);
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+    try {
+      await apiWrite("/finance/fees", "POST", {
+        code: feeCode.trim(),
+        name: feeName.trim(),
+        description: feeDescription.trim() || undefined,
+        type: feeType,
+        isActive: true,
+      });
+      setFeeCode("");
+      setFeeName("");
+      setFeeDescription("");
+      setFeeActionSuccess("Fee definition created.");
+      await load();
+    } catch (actionError) {
+      setFeeActionError(actionError instanceof Error ? actionError.message : "The fee definition could not be created.");
+    } finally {
+      setFeeSaving(false);
+    }
+  }
+
+  async function submitFeeSchedule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!scheduleFeeId) return;
+    setFeeSaving(true);
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+    try {
+      await apiWrite(`/finance/fees/${encodeURIComponent(scheduleFeeId)}/schedules`, "POST", {
+        name: scheduleName.trim(),
+        amount: Number(scheduleAmount),
+        currency: "KES",
+        status: scheduleStatus,
+        effectiveFrom: scheduleFrom,
+        ...(scheduleTo ? { effectiveTo: scheduleTo } : {}),
+        ...(scheduleMemberCategory ? { memberCategory: scheduleMemberCategory } : {}),
+        ...(scheduleConstitutionalCategory ? { constitutionalCategory: scheduleConstitutionalCategory } : {}),
+      });
+      setScheduleName("");
+      setScheduleAmount("");
+      setScheduleTo("");
+      setFeeActionSuccess("Fee schedule created. The backend checked date validity and overlapping applicability.");
+      await load();
+    } catch (actionError) {
+      setFeeActionError(actionError instanceof Error ? actionError.message : "The fee schedule could not be created.");
+    } finally {
+      setFeeSaving(false);
+    }
+  }
+
+  async function toggleFeeDefinition(fee: FeeDefinition) {
+    setFeeSaving(true);
+    setFeeActionError(null);
+    setFeeActionSuccess(null);
+    try {
+      await apiWrite(`/finance/fees/${encodeURIComponent(fee.id)}/${fee.isActive ? "deactivate" : "activate"}`, "POST", {});
+      setFeeActionSuccess(`Fee definition ${fee.isActive ? "deactivated" : "activated"}.`);
+      await load();
+    } catch (actionError) {
+      setFeeActionError(actionError instanceof Error ? actionError.message : "The fee definition status could not be changed.");
+    } finally {
+      setFeeSaving(false);
+    }
+  }
 
   async function submitAllocation() {
     if (!selectedPaymentId || !selectedChargeId || !allocationAmount) {
@@ -477,12 +584,40 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   if (view === "fees") {
     return (
       <div className="space-y-6">
-        <Header title="Membership Fees" description="Fee definitions and effective schedules currently stored by the KUHRSA backend. This view is read-only." />
+        <Header title="Membership Fees" description="Manage fee definitions and dated fee schedules using the existing organization-scoped KUHRSA finance APIs. Creating or changing a schedule does not automatically create a member charge." />
+        {feeActionError ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{feeActionError}</p> : null}
+        {feeActionSuccess ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feeActionSuccess}</p> : null}
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+          <h2 className="text-lg font-black text-[#0B2633]">Create fee definition</h2>
+          <p className="mt-1 text-sm text-black/45">Define a fee category first. Amounts and effective dates are configured separately in fee schedules.</p>
+          <form onSubmit={submitFeeDefinition} className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-bold text-black/60">Code<input required maxLength={50} value={feeCode} onChange={(event) => setFeeCode(event.target.value)} placeholder="e.g. ANNUAL-MEMBERSHIP" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Name<input required maxLength={150} value={feeName} onChange={(event) => setFeeName(event.target.value)} placeholder="Fee name" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Fee type<select value={feeType} onChange={(event) => setFeeType(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="ADMISSION">Admission</option><option value="ANNUAL_MEMBERSHIP">Annual membership</option><option value="EVENT">Event</option><option value="ACTIVITY">Activity</option><option value="OTHER">Other</option></select></label>
+            <label className="text-xs font-bold text-black/60">Description<input maxLength={500} value={feeDescription} onChange={(event) => setFeeDescription(event.target.value)} placeholder="Optional description" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <div className="md:col-span-2"><button disabled={feeSaving} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-50">{feeSaving ? "Saving…" : "Create fee definition"}</button></div>
+          </form>
+        </section>
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+          <h2 className="text-lg font-black text-[#0B2633]">Create fee schedule</h2>
+          <p className="mt-1 text-sm text-black/45">Schedules are effective-dated and may be limited by member category or constitutional category. No fee amount is prefilled.</p>
+          <form onSubmit={submitFeeSchedule} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="text-xs font-bold text-black/60">Fee definition<select required value={scheduleFeeId} onChange={(event) => setScheduleFeeId(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="">Select definition</option>{fees.filter((fee) => fee.isActive).map((fee) => <option key={fee.id} value={fee.id}>{fee.code} · {fee.name}</option>)}</select></label>
+            <label className="text-xs font-bold text-black/60">Schedule name<input required maxLength={150} value={scheduleName} onChange={(event) => setScheduleName(event.target.value)} placeholder="e.g. 2026/2027 membership" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Amount (KES)<input required type="number" min="0" step="0.01" value={scheduleAmount} onChange={(event) => setScheduleAmount(event.target.value)} placeholder="Enter approved amount" className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Status<select value={scheduleStatus} onChange={(event) => setScheduleStatus(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="DRAFT">Draft</option><option value="ACTIVE">Active</option></select></label>
+            <label className="text-xs font-bold text-black/60">Effective from<input required type="date" value={scheduleFrom} onChange={(event) => setScheduleFrom(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Effective to (optional)<input type="date" value={scheduleTo} onChange={(event) => setScheduleTo(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+            <label className="text-xs font-bold text-black/60">Member category<select value={scheduleMemberCategory} onChange={(event) => setScheduleMemberCategory(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="">All categories</option><option value="STUDENT">Student</option><option value="ALUMNI">Alumni</option><option value="LECTURER">Lecturer</option></select></label>
+            <label className="text-xs font-bold text-black/60">Constitutional category<select value={scheduleConstitutionalCategory} onChange={(event) => setScheduleConstitutionalCategory(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm"><option value="">All categories</option><option value="ORDINARY">Ordinary</option><option value="ASSOCIATE">Associate</option><option value="ALUMNI">Alumni</option><option value="HONORARY">Honorary</option></select></label>
+            <div className="flex items-end"><button disabled={feeSaving || fees.every((fee) => !fee.isActive)} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-50">{feeSaving ? "Saving…" : "Create fee schedule"}</button></div>
+          </form>
+        </section>
         {fees.length === 0 ? <StatePanel title="No fee definitions">No fee definitions have been configured for this organization.</StatePanel> : fees.map((fee) => (
           <section key={fee.id} className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-xs font-black uppercase tracking-wider text-[#CE26A4]">{fee.code} · {formatStatus(fee.type)}</p><h2 className="mt-2 text-xl font-black text-[#0B2633]">{fee.name}</h2>{fee.description ? <p className="mt-1 text-sm text-black/45">{fee.description}</p> : null}</div>
-              <Badge value={fee.isActive ? "ACTIVE" : "INACTIVE"} />
+              <div className="flex items-center gap-2"><Badge value={fee.isActive ? "ACTIVE" : "INACTIVE"} /><button type="button" disabled={feeSaving} onClick={() => void toggleFeeDefinition(fee)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-black text-[#0B2633] disabled:opacity-50">{fee.isActive ? "Deactivate" : "Activate"}</button></div>
             </div>
             <div className="mt-5 space-y-3">
               {(fee.schedules ?? []).length === 0 ? <p className="rounded-xl bg-[#F8FBFC] p-4 text-sm text-black/45">No fee schedules are attached to this definition.</p> : fee.schedules?.map((schedule) => (

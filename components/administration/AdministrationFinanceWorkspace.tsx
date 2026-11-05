@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getToken, logout } from "@/lib/auth";
 
 type FinanceView =
-  | "dashboard" | "fees" | "payments" | "history" | "mpesa"
+  | "dashboard" | "fees" | "payments" | "history" | "mpesa" | "periods"
   | "reconciliation" | "receipts" | "refunds" | "expenses"
   | "budgets" | "ledger" | "reports";
 
@@ -79,6 +79,15 @@ type ChargeRecord = {
   description?: string | null;
   dueDate?: string | null;
   feeSchedule?: { name?: string; feeDefinition?: { name?: string } } | null;
+};
+
+type FinancialPeriod = {
+  id: string;
+  name: string;
+  code: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
 };
 
 type ReceiptRecord = {
@@ -406,6 +415,46 @@ function ReceiptRow({ receipt, reload }: { receipt: ReceiptRecord; reload: () =>
   </tr>;
 }
 
+function FinancialPeriodRow({ period, reload }: { period: FinancialPeriod; reload: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(period.name);
+  const [startsAt, setStartsAt] = useState(period.startsAt.slice(0, 10));
+  const [endsAt, setEndsAt] = useState(period.endsAt.slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const locked = ["CLOSED", "LOCKED"].includes(period.status);
+  async function act(path: string, method: "POST" | "PATCH", body: unknown) {
+    setBusy(true); setError("");
+    try {
+      await apiWrite(path, method, body);
+      setEditing(false);
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Financial period action failed.");
+    } finally { setBusy(false); }
+  }
+  const base = `/finance/periods/${encodeURIComponent(period.id)}`;
+  return <tr className="border-b border-black/[0.05] last:border-0">
+    <td className="px-3 py-4 text-xs font-bold text-[#0B2633]">{period.name}</td>
+    <td className="px-3 py-4 text-xs text-black/55">{period.code}</td>
+    <td className="px-3 py-4 text-xs text-black/55">{formatDate(period.startsAt)}</td>
+    <td className="px-3 py-4 text-xs text-black/55">{formatDate(period.endsAt)}</td>
+    <td className="px-3 py-4"><Badge value={period.status} /></td>
+    <td className="min-w-[220px] px-3 py-4"><div className="flex flex-wrap gap-2">
+      <button type="button" disabled={busy || locked} onClick={() => setEditing(!editing)} className="rounded-lg border px-3 py-2 text-[10px] font-bold disabled:opacity-40">Edit</button>
+      {period.status === "OPEN" ? <button type="button" disabled={busy} onClick={() => void act(base + "/close", "POST", {})} className="rounded-lg border px-3 py-2 text-[10px] font-bold">Close</button> : null}
+      {period.status === "CLOSED" ? <button type="button" disabled={busy} onClick={() => void act(base + "/lock", "POST", {})} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Lock</button> : null}
+    </div>
+    {editing && !locked ? <div className="mt-2 space-y-2">
+      <input value={name} onChange={e => setName(e.target.value)} maxLength={150} className="w-full rounded-lg border px-2 py-2 text-xs" aria-label="Financial period name" />
+      <input type="date" value={startsAt} onChange={e => setStartsAt(e.target.value)} className="w-full rounded-lg border px-2 py-2 text-xs" aria-label="Period start date" />
+      <input type="date" value={endsAt} onChange={e => setEndsAt(e.target.value)} className="w-full rounded-lg border px-2 py-2 text-xs" aria-label="Period end date" />
+      <button type="button" disabled={busy || !name.trim() || !startsAt || !endsAt || startsAt >= endsAt} onClick={() => void act(base, "PATCH", { name: name.trim(), startsAt, endsAt })} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40">Save changes</button>
+    </div> : null}
+    {error ? <p className="mt-2 text-[10px] text-rose-700">{error}</p> : null}</td>
+  </tr>;
+}
+
 function UnavailableView({ view }: { view: FinanceView }) {
   const content: Record<string, { title: string; description: string }> = {
     reconciliation: {
@@ -440,6 +489,14 @@ function UnavailableView({ view }: { view: FinanceView }) {
 export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [fees, setFees] = useState<FeeDefinition[]>([]);
+  const [periods, setPeriods] = useState<FinancialPeriod[]>([]);
+  const [periodName, setPeriodName] = useState("");
+  const [periodCode, setPeriodCode] = useState("");
+  const [periodStartsAt, setPeriodStartsAt] = useState("");
+  const [periodEndsAt, setPeriodEndsAt] = useState("");
+  const [periodSaving, setPeriodSaving] = useState(false);
+  const [periodError, setPeriodError] = useState<string | null>(null);
+  const [periodSuccess, setPeriodSuccess] = useState<string | null>(null);
   const [feeCode, setFeeCode] = useState("");
   const [feeName, setFeeName] = useState("");
   const [feeDescription, setFeeDescription] = useState("");
@@ -524,6 +581,8 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         setPayments(paymentRows.slice(0, 8));
       } else if (view === "fees") {
         setFees(await apiRequest<FeeDefinition[]>("/finance/fees"));
+      } else if (view === "periods") {
+        setPeriods(await apiRequest<FinancialPeriod[]>("/finance/periods"));
       } else if (view === "payments" || view === "history" || view === "mpesa") {
         setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
         if (view === "payments" || view === "mpesa") {
@@ -753,6 +812,23 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     }
   }
 
+  async function submitFinancialPeriod(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!periodName.trim() || !periodCode.trim() || !periodStartsAt || !periodEndsAt || periodStartsAt >= periodEndsAt) {
+      setPeriodError("Enter a name, unique code and valid start/end dates.");
+      return;
+    }
+    setPeriodSaving(true); setPeriodError(null); setPeriodSuccess(null);
+    try {
+      await apiMutation("/finance/periods", { name: periodName.trim(), code: periodCode.trim(), startsAt: periodStartsAt, endsAt: periodEndsAt });
+      setPeriodName(""); setPeriodCode(""); setPeriodStartsAt(""); setPeriodEndsAt("");
+      setPeriodSuccess("Financial period created.");
+      await load();
+    } catch (actionError) {
+      setPeriodError(actionError instanceof Error ? actionError.message : "The financial period could not be created.");
+    } finally { setPeriodSaving(false); }
+  }
+
   async function submitMpesaStk(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const amount = Number(mpesaAmount);
@@ -954,6 +1030,29 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         <ChargesTable records={charges} reload={() => void load()} />
       </div>
     );
+  }
+
+  if (view === "periods") {
+    return <div className="space-y-6">
+      <Header title="Financial Periods" description="Manage organization-scoped finance periods. Open periods can be edited or closed; closed periods can be locked. Membership-year rules are maintained separately." />
+      {periodError ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{periodError}</p> : null}
+      {periodSuccess ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{periodSuccess}</p> : null}
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <h2 className="text-lg font-black text-[#0B2633]">Create financial period</h2>
+        <p className="mt-1 text-sm text-black/45">The backend rejects duplicate codes, overlapping date ranges and invalid date order.</p>
+        <form onSubmit={submitFinancialPeriod} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label className="text-xs font-bold text-black/60">Name<input required maxLength={150} value={periodName} onChange={e=>setPeriodName(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Code<input required maxLength={50} value={periodCode} onChange={e=>setPeriodCode(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Starts at<input required type="date" value={periodStartsAt} onChange={e=>setPeriodStartsAt(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <label className="text-xs font-bold text-black/60">Ends at<input required type="date" value={periodEndsAt} onChange={e=>setPeriodEndsAt(e.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-3 py-3 text-sm" /></label>
+          <div className="md:col-span-2 xl:col-span-4"><button type="submit" disabled={periodSaving} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-40">{periodSaving ? "Creating…" : "Create period"}</button></div>
+        </form>
+      </section>
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <h2 className="mb-4 text-lg font-black text-[#0B2633]">Financial period register</h2>
+        {periods.length ? <div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Name","Code","Starts","Ends","Status","Actions"].map(x=><th key={x} className="px-3 py-3 text-[10px] font-black uppercase tracking-wider text-black/35">{x}</th>)}</tr></thead><tbody>{periods.map(period=><FinancialPeriodRow key={period.id} period={period} reload={()=>void load()} />)}</tbody></table></div> : <p className="text-sm text-black/45">No financial periods have been configured.</p>}
+      </section>
+    </div>;
   }
 
   if (view === "fees") {

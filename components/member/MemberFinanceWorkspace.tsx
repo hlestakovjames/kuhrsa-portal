@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { getToken, logout } from "@/lib/auth";
 
@@ -51,6 +51,11 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentPhone, setPaymentPhone] = useState("");
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     const token = getToken();
@@ -65,6 +70,61 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const initiatePayment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPaymentSubmitting(true);
+    setPaymentError(null);
+    setPaymentMessage(null);
+
+    const token = getToken();
+    const amount = Number(paymentAmount);
+    if (!token) {
+      setPaymentError("Your session has expired. Please sign in again.");
+      setPaymentSubmitting(false);
+      return;
+    }
+    if (!Number.isInteger(amount) || amount < 1) {
+      setPaymentError("Enter a whole-number amount of at least KSh 1.");
+      setPaymentSubmitting(false);
+      return;
+    }
+    if (!/^(%4|\u002b254|0)7\d{8}$/.test(paymentPhone.trim())) {
+      setPaymentError("Enter a valid Kenyan mobile number, e.g. 0712345678.");
+      setPaymentSubmitting(false);
+      return;
+    }
+    if (data && amount > data.summary.outstandingBalance) {
+      setPaymentError("The amount cannot exceed your outstanding balance.");
+      setPaymentSubmitting(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/finance/member/me/mpesa/stk`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ amount, phoneNumber: paymentPhone.trim() }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.status === 401) {
+        logout();
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+      if (!response.ok) {
+        throw new Error(Array.isArray(payload?.message) ? payload.message.join(", ") : payload?.message || "M-Pesa payment could not be initiated.");
+      }
+      setPaymentMessage(payload?.mpesa?.customerMessage || "STK prompt sent. Check your phone and complete the M-Pesa prompt.");
+      setPaymentAmount("");
+    } catch (e) {
+      setPaymentError(e instanceof Error ? e.message : "M-Pesa payment could not be initiated.");
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  };
 
   const periodsById = useMemo(() => new Map((data?.membershipPeriods ?? []).map(period => [period.id, period])), [data]);
   const currentPeriod = data?.membershipPeriods.find(period => period.status === "ACTIVE") ?? data?.membershipPeriods[0];
@@ -111,7 +171,7 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
 
       {view === "statements" ? <section className="mt-6 space-y-4">{data.membershipPeriods.map(period=>{const charges=data.charges.filter(c=>c.membershipPeriod?.id===period.id);const chargeTotal=charges.reduce((n,c)=>n+Number(c.amountDue),0);const paid=charges.reduce((n,c)=>n+Number(c.amountPaid),0);return <article key={period.id} className="rounded-2xl border border-black/[0.06] bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-black text-[#0B2633]">{period.membershipYear}</h2><p className="text-xs text-black/45">{date(period.startsAt)} – {date(period.endsAt)}</p></div><Status value={period.status} /></div><div className="mt-5 grid gap-3 sm:grid-cols-3"><Tile label="Charges" value={money(chargeTotal)} /><Tile label="Paid / Allocated" value={money(paid)} /><Tile label="Closing Balance" value={money(charges.reduce((n,c)=>n+Number(c.balance),0))} /></div></article>})}{data.membershipPeriods.length===0 ? <Empty>No membership periods are available for statements.</Empty> : null}</section> : null}
 
-      {view === "payment" ? <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.8fr]"><div className="rounded-2xl border border-black/[0.06] bg-white p-6"><p className="text-xs font-black uppercase tracking-[0.14em] text-[#168DB8]">Amount currently outstanding</p><p className="mt-3 text-4xl font-black text-[#0B2633]">{money(data.summary.outstandingBalance)}</p><p className="mt-3 text-sm leading-6 text-black/50">This amount is calculated from charges recorded against your own member account. Payment initiation is being connected to the member-safe M-Pesa flow; this screen does not mark payments as received.</p></div><div className="rounded-2xl border border-amber-200 bg-amber-50 p-6"><p className="text-xs font-black uppercase tracking-[0.14em] text-amber-800">Payment initiation not yet enabled</p><p className="mt-3 text-sm leading-6 text-amber-900/75">The existing M-Pesa initiation endpoint is restricted to finance staff. A member-scoped STK endpoint with amount and ownership validation is the next integration step. No payment is taken from this screen yet.</p></div></section> : null}
+      {view === "payment" ? <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.8fr]"><div className="rounded-2xl border border-black/[0.06] bg-white p-6"><p className="text-xs font-black uppercase tracking-[0.14em] text-[#168DB8]">Amount currently outstanding</p><p className="mt-3 text-4xl font-black text-[#0B2633]">{money(data.summary.outstandingBalance)}</p><p className="mt-3 text-sm leading-6 text-black/50">Pay all or part of your outstanding membership charges using M-Pesa. The amount cannot exceed your current balance.</p><form onSubmit={initiatePayment} className="mt-6 space-y-4"><label className="block"><span className="text-xs font-bold text-[#0B2633]">Amount (KES)</span><input required type="number" min="1" step="1" max={Math.floor(data.summary.outstandingBalance)} value={paymentAmount} onChange={event=>setPaymentAmount(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-4 py-3 text-sm outline-none focus:border-[#168DB8]" placeholder="Enter amount" /></label><label className="block"><span className="text-xs font-bold text-[#0B2633]">M-Pesa phone number</span><input required type="tel" value={paymentPhone} onChange={event=>setPaymentPhone(event.target.value)} className="mt-2 w-full rounded-xl border border-black/10 px-4 py-3 text-sm outline-none focus:border-[#168DB8]" placeholder="0712345678" /></label>{paymentError ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{paymentError}</p> : null}{paymentMessage ? <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{paymentMessage}</p> : null}<button type="submit" disabled={paymentSubmitting || data.summary.outstandingBalance < 1} className="w-full rounded-xl bg-[#0B2633] px-5 py-3 text-sm font-bold text-white disabled:opacity-40">{paymentSubmitting ? "Sending STK prompt…" : "Pay with M-Pesa"}</button></form></div><div className="rounded-2xl border border-[#168DB8]/15 bg-[#168DB8]/5 p-6"><p className="text-xs font-black uppercase tracking-[0.14em] text-[#168DB8]">How it works</p><ol className="mt-4 list-decimal space-y-3 pl-5 text-sm leading-6 text-[#0B2633]/70"><li>Enter the amount and phone number registered for M-Pesa.</li><li>Submit to send a secure STK prompt to your phone.</li><li>Enter your M-Pesa PIN on your phone to authorize payment.</li><li>Wait for Safaricom confirmation; your records update after the callback is processed.</li></ol><p className="mt-5 text-xs leading-5 text-black/45">Do not share your M-Pesa PIN with anyone. Submitting this form does not itself confirm that a payment has been received.</p></div></section> : null}
     </> : null}
   </div>;
 }

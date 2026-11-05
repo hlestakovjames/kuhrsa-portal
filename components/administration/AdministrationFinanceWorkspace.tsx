@@ -332,6 +332,46 @@ function ChargesTable({ records, reload }: { records: ChargeRecord[]; reload: ()
   {records.length===0?<p className="rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/45">No member charges are currently available.</p>:<div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Member","Member Number","Fee","Amount Due","Paid","Balance","Due Date","Status","Actions"].map(item=><th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35">{item}</th>)}</tr></thead><tbody>{records.map(charge=><ChargeRow key={charge.id} charge={charge} reload={reload}/>)}</tbody></table></div>}</section>;
 }
 
+function ReceiptRow({ receipt, reload }: { receipt: ReceiptRecord; reload: () => void }) {
+  const [showVoid, setShowVoid] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function voidReceipt() {
+    if (!reason.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiMutation(`/finance/receipts/${encodeURIComponent(receipt.id)}/void`, { reason: reason.trim() });
+      setShowVoid(false);
+      setReason("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The receipt could not be voided.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <tr className="border-b border-black/[0.05] last:border-0">
+    <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{receipt.receiptNumber}</td>
+    <td className="px-3 py-4 text-xs text-black/60">{memberLabel(receipt.member)}</td>
+    <td className="px-3 py-4 text-xs text-black/50">{memberNumber(receipt.member)}</td>
+    <td className="px-3 py-4 text-xs text-black/50">{receipt.payment?.reference || receipt.payment?.id || "—"}</td>
+    <td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(receipt.amount, receipt.currency)}</td>
+    <td className="px-3 py-4 text-xs text-black/50">{formatDate(receipt.issuedAt)}</td>
+    <td className="px-3 py-4"><Badge value={receipt.status} /></td>
+    <td className="px-3 py-4">
+      {receipt.status === "ISSUED" ? <button type="button" onClick={() => setShowVoid(!showVoid)} disabled={busy} className="rounded-lg border border-rose-200 px-3 py-2 text-[10px] font-bold text-rose-700">Void receipt</button> : <span className="text-xs text-black/35">—</span>}
+      {showVoid ? <div className="mt-2 min-w-[190px] space-y-2">
+        <input value={reason} onChange={e => setReason(e.target.value)} maxLength={500} placeholder="Reason required" className="w-full rounded-lg border px-2 py-2 text-xs" />
+        <button type="button" disabled={busy || !reason.trim()} onClick={() => voidReceipt()} className="rounded-lg bg-rose-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40">{busy ? "Voiding…" : "Confirm void"}</button>
+        <button type="button" onClick={() => setShowVoid(false)} className="ml-2 rounded-lg border px-3 py-2 text-[10px]">Keep receipt</button>
+        {error ? <p className="text-[10px] text-rose-700">{error}</p> : null}
+      </div> : null}
+    </td>
+  </tr>;
+}
+
 function UnavailableView({ view }: { view: FinanceView }) {
   const content: Record<string, { title: string; description: string }> = {
     reconciliation: {
@@ -393,6 +433,10 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [editScheduleMemberCategory, setEditScheduleMemberCategory] = useState("");
   const [editScheduleConstitutionalCategory, setEditScheduleConstitutionalCategory] = useState("");
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [receiptPaymentId, setReceiptPaymentId] = useState("");
+  const [receiptSaving, setReceiptSaving] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [receiptSuccess, setReceiptSuccess] = useState<string | null>(null);
   const [charges, setCharges] = useState<ChargeRecord[]>([]);
   const [chargeMembers, setChargeMembers] = useState<MemberRecord[]>([]);
   const [chargeFees, setChargeFees] = useState<FeeDefinition[]>([]);
@@ -431,7 +475,12 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
       } else if (view === "payments" || view === "history" || view === "mpesa") {
         setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
       } else if (view === "receipts") {
-        setReceipts(await apiRequest<ReceiptRecord[]>("/finance/receipts"));
+        const [receiptRows, paymentRows] = await Promise.all([
+          apiRequest<ReceiptRecord[]>("/finance/receipts"),
+          apiRequest<PaymentRecord[]>("/finance/payments"),
+        ]);
+        setReceipts(receiptRows);
+        setPayments(paymentRows);
       } else if (view === "reconciliation") {
         const [paymentRows, chargeRows] = await Promise.all([
           apiRequest<PaymentRecord[]>("/finance/payments"),
@@ -648,6 +697,24 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     }
   }
 
+  async function submitReceipt(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!receiptPaymentId) return;
+    setReceiptSaving(true);
+    setReceiptError(null);
+    setReceiptSuccess(null);
+    try {
+      const receipt = await apiMutation<ReceiptRecord>("/finance/receipts", { paymentId: receiptPaymentId });
+      setReceiptSuccess(`Receipt ${receipt.receiptNumber} issued successfully.`);
+      setReceiptPaymentId("");
+      await load();
+    } catch (actionError) {
+      setReceiptError(actionError instanceof Error ? actionError.message : "The receipt could not be issued.");
+    } finally {
+      setReceiptSaving(false);
+    }
+  }
+
   async function submitAllocation() {
     if (!selectedPaymentId || !selectedChargeId || !allocationAmount) {
       setAllocationError("Select a completed payment, an outstanding charge and an allocation amount.");
@@ -852,7 +919,29 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   }
 
   if (view === "receipts") {
-    return <div className="space-y-6"><Header title="Receipts" description="Issued receipt records returned by the KUHRSA backend. Receipt issuance and voiding remain permission-controlled backend operations." /><section className="grid gap-4 sm:grid-cols-3"><StatCard label="Receipts" value={receipts.length} /><StatCard label="Issued" value={receipts.filter((item) => item.status === "ISSUED").length} /><StatCard label="Voided" value={receipts.filter((item) => item.status === "VOIDED").length} /></section><section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Receipt", "Member", "Member Number", "Payment", "Amount", "Issued", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-wider text-black/35 first:pl-0">{item}</th>)}</tr></thead><tbody>{receipts.map((item) => <tr key={item.id} className="border-b border-black/[0.05] last:border-0"><td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">{item.receiptNumber}</td><td className="px-3 py-4 text-xs text-black/60">{memberLabel(item.member)}</td><td className="px-3 py-4 text-xs text-black/50">{memberNumber(item.member)}</td><td className="px-3 py-4 text-xs text-black/50">{item.payment?.reference || item.payment?.id || "—"}</td><td className="px-3 py-4 text-sm font-black text-[#0B2633]">{formatCurrency(item.amount, item.currency)}</td><td className="px-3 py-4 text-xs text-black/50">{formatDate(item.issuedAt)}</td><td className="px-3 py-4"><Badge value={item.status} /></td></tr>)}</tbody></table></div>{receipts.length === 0 ? <p className="py-5 text-sm text-black/45">No receipt records are currently available.</p> : null}</section></div>;
+    const receiptEligiblePayments = payments.filter((payment) => payment.status === "COMPLETED" && !payment.receipt);
+    return <div className="space-y-6">
+      <Header title="Receipts" description="Issue receipts for completed payments and void issued receipts with a recorded reason. The backend enforces payment completion, one receipt per payment and organization ownership." />
+      <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Receipts" value={receipts.length} /><StatCard label="Issued" value={receipts.filter((item) => item.status === "ISSUED").length} /><StatCard label="Voided" value={receipts.filter((item) => item.status === "VOIDED").length} /></section>
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <h2 className="text-lg font-black text-[#0B2633]">Issue a receipt</h2>
+        <p className="mt-1 text-sm text-black/45">Only completed payments without an existing receipt are eligible. Issuing a receipt does not create or alter a payment.</p>
+        {receiptError ? <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{receiptError}</p> : null}
+        {receiptSuccess ? <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{receiptSuccess}</p> : null}
+        <form onSubmit={submitReceipt} className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <select required value={receiptPaymentId} onChange={event => setReceiptPaymentId(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-3 text-sm">
+            <option value="">Select completed payment</option>
+            {receiptEligiblePayments.map(payment => <option key={payment.id} value={payment.id}>{payment.reference || payment.id.slice(0, 8)} · {memberLabel(payment.member)} · {formatCurrency(payment.amount, payment.currency)}</option>)}
+          </select>
+          <button type="submit" disabled={receiptSaving || !receiptPaymentId} className="rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:opacity-40">{receiptSaving ? "Issuing…" : "Issue receipt"}</button>
+        </form>
+        {receiptEligiblePayments.length === 0 ? <p className="mt-3 text-xs text-amber-700">No completed payment without an existing receipt is currently available.</p> : null}
+      </section>
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Receipt", "Member", "Member Number", "Payment", "Amount", "Issued", "Status", "Actions"].map(item => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-wider text-black/35 first:pl-0">{item}</th>)}</tr></thead><tbody>{receipts.map(item => <ReceiptRow key={item.id} receipt={item} reload={() => void load()} />)}</tbody></table></div>
+        {receipts.length === 0 ? <p className="py-5 text-sm text-black/45">No receipt records are currently available.</p> : null}
+      </section>
+    </div>;
   }
 
   const finance = summary?.finance;

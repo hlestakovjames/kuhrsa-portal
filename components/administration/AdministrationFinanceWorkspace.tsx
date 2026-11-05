@@ -34,7 +34,7 @@ type PaymentRecord = {
   createdAt: string;
   paidAt?: string | null;
   member?: MemberRecord | null;
-  allocations?: Array<{ id: string; amount: string | number }>;
+  allocations?: Array<{ id: string; chargeId: string; amount: string | number }>;
   receipt?: { id: string; receiptNumber: string; status: string } | null;
   mpesaTransaction?: {
     phoneNumber?: string | null;
@@ -65,6 +65,19 @@ type FeeDefinition = {
   type: string;
   isActive: boolean;
   schedules?: FeeSchedule[];
+};
+
+type ChargeRecord = {
+  id: string;
+  memberId: string;
+  amountDue: string | number;
+  amountPaid: string | number;
+  balance: string | number;
+  currency: string;
+  status: string;
+  description?: string | null;
+  dueDate?: string | null;
+  feeSchedule?: { name?: string; feeDefinition?: { name?: string } } | null;
 };
 
 type ReceiptRecord = {
@@ -114,6 +127,29 @@ async function apiRequest<T>(path: string): Promise<T> {
       ? data.message.join(", ")
       : data?.message;
     throw new Error(message || "The finance data could not be loaded.");
+  }
+  return data as T;
+}
+
+async function apiMutation<T>(path: string, body: unknown): Promise<T> {
+  const token = getToken();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => null);
+  if (response.status === 401) {
+    logout();
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+  if (!response.ok) {
+    const message = Array.isArray(data?.message) ? data.message.join(", ") : data?.message;
+    throw new Error(message || "The finance action could not be completed.");
   }
   return data as T;
 }
@@ -277,6 +313,13 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [fees, setFees] = useState<FeeDefinition[]>([]);
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [charges, setCharges] = useState<ChargeRecord[]>([]);
+  const [selectedPaymentId, setSelectedPaymentId] = useState("");
+  const [selectedChargeId, setSelectedChargeId] = useState("");
+  const [allocationAmount, setAllocationAmount] = useState("");
+  const [allocationError, setAllocationError] = useState<string | null>(null);
+  const [allocationSuccess, setAllocationSuccess] = useState<string | null>(null);
+  const [allocating, setAllocating] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -298,6 +341,13 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         setPayments(await apiRequest<PaymentRecord[]>("/finance/payments"));
       } else if (view === "receipts") {
         setReceipts(await apiRequest<ReceiptRecord[]>("/finance/receipts"));
+      } else if (view === "reconciliation") {
+        const [paymentRows, chargeRows] = await Promise.all([
+          apiRequest<PaymentRecord[]>("/finance/payments"),
+          apiRequest<ChargeRecord[]>("/finance/charges"),
+        ]);
+        setPayments(paymentRows);
+        setCharges(chargeRows);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "The finance data could not be loaded.");
@@ -312,12 +362,117 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     () => payments.filter((item) => item.method === "MPESA"),
     [payments],
   );
+  const completedPayments = useMemo(
+    () => payments.filter((item) => item.status === "COMPLETED"),
+    [payments],
+  );
+  const selectedPayment = payments.find((item) => item.id === selectedPaymentId);
+  const allocatableCharges = charges.filter((charge) =>
+    selectedPayment &&
+    charge.memberId === selectedPayment.member?.id &&
+    Number(charge.balance) > 0 &&
+    !["CANCELLED", "WAIVED"].includes(charge.status) &&
+    charge.currency === selectedPayment.currency &&
+    !(selectedPayment.allocations ?? []).some((allocation) => allocation.chargeId === charge.id),
+  );
 
-  if (["reconciliation", "refunds", "expenses", "budgets", "ledger", "reports"].includes(view)) {
+  async function submitAllocation() {
+    if (!selectedPaymentId || !selectedChargeId || !allocationAmount) {
+      setAllocationError("Select a completed payment, an outstanding charge and an allocation amount.");
+      return;
+    }
+    const amount = Number(allocationAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setAllocationError("Enter an allocation amount greater than zero.");
+      return;
+    }
+    setAllocating(true);
+    setAllocationError(null);
+    setAllocationSuccess(null);
+    try {
+      await apiMutation(
+        `/finance/allocations?paymentId=${encodeURIComponent(selectedPaymentId)}`,
+        { chargeId: selectedChargeId, amount },
+      );
+      setAllocationSuccess("Payment allocation saved. The charge balance has been recalculated by the backend.");
+      setSelectedChargeId("");
+      setAllocationAmount("");
+      await load();
+    } catch (actionError) {
+      setAllocationError(actionError instanceof Error ? actionError.message : "The allocation could not be saved.");
+    } finally {
+      setAllocating(false);
+    }
+  }
+
+  if (["refunds", "expenses", "budgets", "ledger", "reports"].includes(view)) {
     return <UnavailableView view={view} />;
   }
   if (loading) return <div className="space-y-6"><Header title="Finance & Payments" description="Live finance information from the KUHRSA backend." /><LoadingState /></div>;
   if (error) return <div className="space-y-6"><Header title="Finance & Payments" description="Organization-scoped finance records." /><ErrorState message={error} retry={() => void load()} /></div>;
+
+  if (view === "reconciliation") {
+    return (
+      <div className="space-y-6">
+        <Header
+          title="Payment Allocation & Reconciliation"
+          description="Review completed payments and allocate them to outstanding charges belonging to the same member. The backend validates ownership, currency, payment completion and remaining balances."
+        />
+        <StatePanel title="Scope of this workflow">
+          This connects the existing payment-allocation API. It allocates already-recorded completed payments to member charges; it does not independently match bank statements, verify M-Pesa callbacks or approve unverified transactions.
+        </StatePanel>
+        <section className="grid gap-4 sm:grid-cols-3">
+          <StatCard label="Completed Payments" value={completedPayments.length} />
+          <StatCard label="Outstanding Charges" value={charges.filter((item) => Number(item.balance) > 0 && !["CANCELLED", "WAIVED"].includes(item.status)).length} />
+          <StatCard label="Allocations Recorded" value={payments.reduce((total, item) => total + (item.allocations?.length ?? 0), 0)} />
+        </section>
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+          <h2 className="text-lg font-black text-[#0B2633]">Allocate a completed payment</h2>
+          <p className="mt-1 text-sm text-black/45">Only eligible charges for the selected payment's member and currency are offered.</p>
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <label className="block text-xs font-bold text-black/60">
+              Completed payment
+              <select value={selectedPaymentId} onChange={(event) => { setSelectedPaymentId(event.target.value); setSelectedChargeId(""); }} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm text-[#0B2633]">
+                <option value="">Select payment</option>
+                {completedPayments.map((payment) => {
+                  const allocated = (payment.allocations ?? []).reduce((sum, item) => sum + Number(item.amount), 0);
+                  const remaining = Number(payment.amount) - allocated;
+                  return remaining > 0 ? <option key={payment.id} value={payment.id}>{payment.reference || payment.id.slice(0, 8)} · {memberNumber(payment.member)} · {formatCurrency(remaining, payment.currency)} remaining</option> : null;
+                })}
+              </select>
+            </label>
+            <label className="block text-xs font-bold text-black/60">
+              Outstanding charge
+              <select value={selectedChargeId} onChange={(event) => setSelectedChargeId(event.target.value)} disabled={!selectedPaymentId} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm text-[#0B2633] disabled:bg-black/[0.03]">
+                <option value="">Select charge</option>
+                {allocatableCharges.map((charge) => <option key={charge.id} value={charge.id}>{charge.feeSchedule?.feeDefinition?.name || charge.feeSchedule?.name || charge.description || "Member charge"} · {formatCurrency(charge.balance, charge.currency)} due</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-bold text-black/60">
+              Amount to allocate
+              <input type="number" min="0.01" step="0.01" value={allocationAmount} onChange={(event) => setAllocationAmount(event.target.value)} disabled={!selectedChargeId} placeholder="e.g. 200.00" className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-sm text-[#0B2633] disabled:bg-black/[0.03]" />
+            </label>
+          </div>
+          {selectedPayment ? <p className="mt-3 text-xs text-black/45">Selected payment: {memberLabel(selectedPayment.member)} · {formatCurrency(selectedPayment.amount, selectedPayment.currency)} · {formatStatus(selectedPayment.status)}</p> : null}
+          {selectedPaymentId && allocatableCharges.length === 0 ? <p className="mt-3 text-xs text-amber-700">No eligible outstanding charge is available for this payment. Check member ownership, currency, existing allocations and charge status.</p> : null}
+          {allocationError ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{allocationError}</p> : null}
+          {allocationSuccess ? <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{allocationSuccess}</p> : null}
+          <button type="button" onClick={() => void submitAllocation()} disabled={allocating || !selectedPaymentId || !selectedChargeId || !allocationAmount} className="mt-5 rounded-xl bg-[#0B2633] px-5 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{allocating ? "Saving allocation…" : "Save payment allocation"}</button>
+        </section>
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+          <h2 className="text-lg font-black text-[#0B2633]">Recorded allocations</h2>
+          <div className="mt-4 space-y-3">
+            {payments.flatMap((payment) => (payment.allocations ?? []).map((allocation) => ({ payment, allocation }))).length === 0 ? <p className="text-sm text-black/45">No payment allocations are currently recorded.</p> : payments.flatMap((payment) => (payment.allocations ?? []).map((allocation) => ({ payment, allocation }))).map(({ payment, allocation }) => (
+              <div key={allocation.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#F8FBFC] p-4">
+                <div><p className="text-sm font-bold text-[#0B2633]">{memberLabel(payment.member)} · {memberNumber(payment.member)}</p><p className="mt-1 text-xs text-black/45">Payment {payment.reference || payment.id.slice(0, 8)}</p></div>
+                <p className="text-sm font-black text-[#0B2633]">{formatCurrency(allocation.amount, payment.currency)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   if (view === "fees") {
     return (

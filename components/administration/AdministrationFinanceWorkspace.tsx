@@ -302,34 +302,34 @@ function PaymentsTable({ title, records }: { title: string; records: PaymentReco
   );
 }
 
-function ChargesTable({ records }: { records: ChargeRecord[] }) {
-  return (
-    <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-      <div className="mb-5">
-        <h2 className="text-lg font-black text-[#0B2633]">Member charge register</h2>
-        <p className="mt-1 text-sm text-black/40">Live charge records, including the linked member name and member number.</p>
-      </div>
-      {records.length === 0 ? <p className="rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/45">No member charges are currently available.</p> : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead><tr className="border-b border-black/[0.06]">{["Member", "Member Number", "Fee", "Amount Due", "Paid", "Balance", "Due Date", "Status"].map((item) => <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{item}</th>)}</tr></thead>
-            <tbody>{records.map((charge) => (
-              <tr key={charge.id} className="border-b border-black/[0.05] last:border-0">
-                <td className="px-3 py-4 text-xs font-semibold text-black/60 first:pl-0">{memberLabel(charge.member)}</td>
-                <td className="px-3 py-4 text-xs text-black/50">{memberNumber(charge.member)}</td>
-                <td className="px-3 py-4 text-xs text-black/55">{charge.feeSchedule?.feeDefinition?.name || charge.feeSchedule?.name || charge.description || "Member charge"}</td>
-                <td className="px-3 py-4 text-xs font-bold text-[#0B2633]">{formatCurrency(charge.amountDue, charge.currency)}</td>
-                <td className="px-3 py-4 text-xs text-black/55">{formatCurrency(charge.amountPaid, charge.currency)}</td>
-                <td className="px-3 py-4 text-xs font-black text-[#0B2633]">{formatCurrency(charge.balance, charge.currency)}</td>
-                <td className="px-3 py-4 text-xs text-black/50">{formatDate(charge.dueDate)}</td>
-                <td className="px-3 py-4"><Badge value={charge.status} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
+function ChargeRow({ charge, reload }: { charge: ChargeRecord; reload: () => void }) {
+  const [editing,setEditing]=useState(false), [description,setDescription]=useState(charge.description||""), [amount,setAmount]=useState(String(charge.amountDue)), [dueDate,setDueDate]=useState(charge.dueDate?.slice(0,10)||""), [reason,setReason]=useState(""), [confirmCancel,setConfirmCancel]=useState(false), [busy,setBusy]=useState(false), [error,setError]=useState("");
+  const locked=["WAIVED","CANCELLED"].includes(charge.status), paid=Number(charge.amountPaid)>0;
+  async function act(path:string,method:"POST"|"PATCH",body:unknown) {
+    setBusy(true); setError("");
+    try { await apiWrite(path,method,body); setEditing(false); setConfirmCancel(false); reload(); }
+    catch(e) { setError(e instanceof Error?e.message:"Charge action failed."); }
+    finally { setBusy(false); }
+  }
+  const base="/finance/charges/"+encodeURIComponent(charge.id);
+  return <tr className="border-b border-black/[0.05] last:border-0">
+    <td className="px-3 py-4 text-xs font-semibold text-black/60">{memberLabel(charge.member)}</td><td className="px-3 py-4 text-xs text-black/50">{memberNumber(charge.member)}</td>
+    <td className="px-3 py-4 text-xs text-black/55">{charge.feeSchedule?.feeDefinition?.name||charge.feeSchedule?.name||charge.description||"Member charge"}</td>
+    <td className="px-3 py-4 text-xs font-bold">{formatCurrency(charge.amountDue,charge.currency)}</td><td className="px-3 py-4 text-xs">{formatCurrency(charge.amountPaid,charge.currency)}</td><td className="px-3 py-4 text-xs font-black">{formatCurrency(charge.balance,charge.currency)}</td><td className="px-3 py-4 text-xs">{formatDate(charge.dueDate)}</td><td className="px-3 py-4"><Badge value={charge.status}/></td>
+    <td className="min-w-[230px] px-3 py-4"><div className="flex flex-wrap gap-2">
+      <button type="button" disabled={locked||busy} onClick={()=>setEditing(!editing)} className="rounded-lg border px-3 py-2 text-[10px] font-bold disabled:opacity-40">Edit</button>
+      <button type="button" disabled={locked||busy} onClick={()=>void act(base+"/recalculate","POST",{})} className="rounded-lg border px-3 py-2 text-[10px] font-bold disabled:opacity-40">Recalculate</button>
+      {!paid&&!locked?<button type="button" disabled={busy} onClick={()=>setConfirmCancel(true)} className="rounded-lg border border-rose-200 px-3 py-2 text-[10px] font-bold text-rose-700">Cancel</button>:null}
+    </div>
+    {editing&&!locked?<div className="mt-2 space-y-2"><input aria-label="Description" maxLength={500} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Description" className="w-full rounded-lg border px-2 py-2 text-xs"/><input aria-label="Amount due" type="number" min={Number(charge.amountPaid)} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full rounded-lg border px-2 py-2 text-xs"/><input aria-label="Due date" type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} className="w-full rounded-lg border px-2 py-2 text-xs"/><button type="button" disabled={busy||!Number.isFinite(Number(amount))||Number(amount)<Number(charge.amountPaid)} onClick={()=>void act(base,"PATCH",{description,amountDue:Number(amount),dueDate})} className="rounded-lg bg-[#0B2633] px-3 py-2 text-[10px] font-bold text-white">Save changes</button></div>:null}
+    {!paid&&!locked?<div className="mt-2 space-y-2"><input aria-label="Waiver reason" maxLength={500} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason required to waive" className="w-full rounded-lg border px-2 py-2 text-xs"/><button type="button" disabled={busy||!reason.trim()} onClick={()=>void act(base+"/waive","POST",{reason:reason.trim()})} className="rounded-lg border border-amber-200 px-3 py-2 text-[10px] font-bold text-amber-800 disabled:opacity-40">Waive</button></div>:null}
+    {confirmCancel?<div className="mt-2 rounded-lg bg-rose-50 p-2"><p className="text-[10px] text-rose-800">Confirm cancellation of this unpaid charge?</p><button type="button" disabled={busy} onClick={()=>void act(base+"/cancel","POST",{})} className="mt-2 rounded-lg bg-rose-700 px-3 py-2 text-[10px] font-bold text-white">Confirm cancel</button><button type="button" onClick={()=>setConfirmCancel(false)} className="ml-2 rounded-lg border px-3 py-2 text-[10px]">Keep</button></div>:null}
+    {error?<p className="mt-2 text-[10px] text-rose-700">{error}</p>:null}</td></tr>;
+}
+
+function ChargesTable({ records, reload }: { records: ChargeRecord[]; reload: () => void }) {
+  return <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"><div className="mb-5"><h2 className="text-lg font-black text-[#0B2633]">Member charge register</h2><p className="mt-1 text-sm text-black/40">Live charge records and permitted maintenance actions. Backend validation remains authoritative.</p></div>
+  {records.length===0?<p className="rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/45">No member charges are currently available.</p>:<div className="overflow-x-auto"><table className="min-w-full text-left"><thead><tr className="border-b border-black/[0.06]">{["Member","Member Number","Fee","Amount Due","Paid","Balance","Due Date","Status","Actions"].map(item=><th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35">{item}</th>)}</tr></thead><tbody>{records.map(charge=><ChargeRow key={charge.id} charge={charge} reload={reload}/>)}</tbody></table></div>}</section>;
 }
 
 function UnavailableView({ view }: { view: FinanceView }) {
@@ -773,7 +773,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
             ))}
           </div>
         </section>
-        <ChargesTable records={charges} />
+        <ChargesTable records={charges} reload={() => void load()} />
       </div>
     );
   }

@@ -760,7 +760,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
       setMpesaError("Select a member and enter an amount of at least KSh 1.");
       return;
     }
-    if (!/^(?:254|\\+254|0)7\\d{8}$/.test(mpesaPhone.trim())) {
+    if (!/^(?:254|\+254|0)7\d{8}$/.test(mpesaPhone.trim())) {
       setMpesaError("Enter a valid Kenyan mobile number, for example 07XXXXXXXX or 2547XXXXXXXX.");
       return;
     }

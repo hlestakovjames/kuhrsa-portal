@@ -50,13 +50,6 @@ const reviews = [
   ["Casey Kariuki", "Content Administrator", "01 Sep 2026", "Approved"],
 ];
 
-const logs = [
-  ["08 Sep 2026", "Avery Morgan", "Updated role permissions", "Access"],
-  ["08 Sep 2026", "Jordan Otieno", "Viewed finance records", "Finance"],
-  ["07 Sep 2026", "Taylor Wambui", "Accessed governance records", "Governance"],
-  ["06 Sep 2026", "Casey Kariuki", "Published announcement", "Content"],
-];
-
 function Header({
   title,
   description,
@@ -529,56 +522,161 @@ function ReviewsView() {
   );
 }
 
+type AuditLogRecord = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  reason: string | null;
+  createdAt: string;
+  actor: {
+    id: string;
+    firstName: string | null;
+    middleName: string | null;
+    lastName: string | null;
+    email: string;
+  } | null;
+};
+
 function LogsView() {
+  const [records, setRecords] = useState<AuditLogRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAuditLogs() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) {
+          setError("Your session is unavailable. Sign in again to view audit logs.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${ACCESS_API_URL}/dashboard/administration`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          if (response.status === 403) {
+            throw new Error("Your account does not have administration access to view organization audit logs.");
+          }
+          throw new Error(payload?.message || `Unable to load audit logs (HTTP ${response.status}).`);
+        }
+
+        const recent = payload?.audit?.recent;
+        if (!Array.isArray(recent)) {
+          throw new Error("The administration response did not include audit records in the expected format.");
+        }
+
+        if (mounted) setRecords(recent as AuditLogRecord[]);
+      } catch (loadError) {
+        if (mounted) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load audit logs.");
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadAuditLogs();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const formatDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? "Date unavailable"
+      : date.toLocaleString("en-KE", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+  };
+
+  const actorName = (actor: AuditLogRecord["actor"]) => {
+    if (!actor) return "System / unknown actor";
+    const name = [actor.firstName, actor.middleName, actor.lastName]
+      .filter((part): part is string => Boolean(part?.trim()))
+      .join(" ");
+    return name || actor.email;
+  };
+
   return (
     <div className="space-y-6">
       <Header
         title="Access Logs"
-        description="Auditable records of authentication, access and authorization activity."
+        description="Recent organization audit records supplied by the KUHRSA administration backend. These records reflect actions actually written to the audit log; they are not a complete authentication or page-view history."
       />
 
+      <section className="grid gap-4 sm:grid-cols-2">
+        <StatCard label="Recent Audit Records" value={loading ? "…" : String(records.length)} />
+        <StatCard label="Audit Source" value="Live backend" />
+      </section>
+
       <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["Date", "User", "Action", "Area"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {logs.map(([date, user, action, area]) => (
-                <tr
-                  key={`${date}-${user}-${action}`}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-xs text-black/50 first:pl-0">
-                    {date}
-                  </td>
-
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633]">
-                    {user}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs text-black/55">
-                    {action}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/50">
-                    {area}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[#0B2633]">Organization audit trail</h2>
+            <p className="mt-1 text-sm text-black/45">The backend currently returns the eight most recent organization audit records.</p>
+          </div>
+          <span className="rounded-full bg-[#F8FBFC] px-3 py-1.5 text-xs font-bold text-black/50">
+            {loading ? "Loading…" : `${records.length} records`}
+          </span>
         </div>
+
+        {error ? (
+          <div role="alert" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            {error}
+          </div>
+        ) : loading ? (
+          <p className="mt-6 text-sm text-black/45">Loading organization audit records…</p>
+        ) : records.length === 0 ? (
+          <p className="mt-6 rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/50">
+            No audit records have been returned for this organization.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead>
+                <tr className="border-b border-black/[0.06]">
+                  {["Date & time", "Actor", "Action", "Entity", "Reason"].map((item) => (
+                    <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">
+                      {item}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((record) => (
+                  <tr key={record.id} className="border-b border-black/[0.05] last:border-0">
+                    <td className="whitespace-nowrap px-3 py-4 text-xs text-black/50 first:pl-0">{formatDate(record.createdAt)}</td>
+                    <td className="px-3 py-4">
+                      <p className="text-sm font-black text-[#0B2633]">{actorName(record.actor)}</p>
+                      {record.actor?.email && <p className="mt-1 text-[11px] text-black/40">{record.actor.email}</p>}
+                    </td>
+                    <td className="px-3 py-4 text-xs font-semibold text-black/60">{record.action.replaceAll("_", " ")}</td>
+                    <td className="px-3 py-4 text-xs text-black/55">
+                      <p>{record.entityType}</p>
+                      {record.entityId && <p className="mt-1 text-[10px] text-black/35">{record.entityId}</p>}
+                    </td>
+                    <td className="max-w-xs px-3 py-4 text-xs text-black/50">{record.reason || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

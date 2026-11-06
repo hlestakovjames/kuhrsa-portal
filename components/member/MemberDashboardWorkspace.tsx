@@ -75,7 +75,7 @@ type MemberFinanceSummary = {
   unallocatedCompletedPayments: number;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:3001";
 
 function money(value: number, currency = "KES") {
   return new Intl.NumberFormat("en-KE", {

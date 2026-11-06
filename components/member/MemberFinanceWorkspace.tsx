@@ -69,15 +69,7 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
     } catch (e) { setError(e instanceof Error ? e.message : "Your finance information could not be loaded."); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => {
-    void load();
-    window.addEventListener("focus", load);
-    const refreshInterval = window.setInterval(() => void load(), 30000);
-    return () => {
-      window.removeEventListener("focus", load);
-      window.clearInterval(refreshInterval);
-    };
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const initiatePayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

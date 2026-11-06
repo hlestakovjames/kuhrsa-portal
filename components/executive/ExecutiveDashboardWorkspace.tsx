@@ -445,7 +445,7 @@ export default function ExecutiveDashboardWorkspace({
             eyebrow="Leadership"
             title="My Office"
             description="View your executive role, appointment, term and assigned committees."
-            href="/executive/leadership"
+            href="#my-office"
             icon={
               <svg
                 className="h-5 w-5"

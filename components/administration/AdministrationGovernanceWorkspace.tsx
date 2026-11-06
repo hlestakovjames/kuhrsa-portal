@@ -63,12 +63,12 @@ type GovernanceData = {
 };
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ??
+  (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").replace(/\/+$/, "") ??
   "http://localhost:3001";
 
 function titleCase(value?: string | null) {
   if (!value) return "Not available";
-  return value.toLowerCase().replace(/_/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatDate(value?: string | null) {

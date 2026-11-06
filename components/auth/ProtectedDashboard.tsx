@@ -187,7 +187,7 @@ type DashboardResponse =
   | ExecutiveDashboardResponse
   | AdministrationDashboardResponse;
 
-type DashboardErrorResponse = {
+type ExecutiveGovernanceSnapshot = {\n  governance: { hasActiveAssignment: boolean; assignments: Array<{ id: string; startsAt: string; endsAt: string; position: { code: string; name: string }; term: { code: string; name: string; startsAt: string; endsAt: string }; roles: Array<{ code: string; name: string }> }> };\n  access: { roles: Array<{ code: string; name: string; startsAt: string; endsAt: string | null }>; permissions: string[] };\n};\n\ntype DashboardErrorResponse = {
   message?: string;
 };
 

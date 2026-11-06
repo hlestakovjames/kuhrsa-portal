@@ -6,8 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import DashboardShell from "@/components/dashboard/DashboardShell";
 import { AuthUser, canAccessPortal, getMe, logout, PortalType } from "@/lib/auth";
 
-type PortalSession = { user: AuthUser | null };
-const PortalSessionContext = createContext<PortalSession>({ user: null });
+type PortalSession = { user: AuthUser | null; logout: () => void };
+const PortalSessionContext = createContext<PortalSession>({ user: null, logout: () => undefined });
 
 export function usePortalSession() {
   return useContext(PortalSessionContext);
@@ -79,7 +79,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
   };
 
   if (!portal) {
-    return <PortalSessionContext.Provider value={{ user }}>{children}</PortalSessionContext.Provider>;
+    return <PortalSessionContext.Provider value={{ user, logout: handleLogout }}>{children}</PortalSessionContext.Provider>;
   }
 
   if (loading) {
@@ -106,7 +106,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
   }
 
   return (
-    <PortalSessionContext.Provider value={{ user }}>
+    <PortalSessionContext.Provider value={{ user, logout: handleLogout }}>
       <DashboardShell portal={portal} user={user} onLogout={handleLogout}>{children}</DashboardShell>
     </PortalSessionContext.Provider>
   );

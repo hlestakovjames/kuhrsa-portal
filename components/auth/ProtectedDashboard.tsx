@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import {
   AuthUser,
   canAccessPortal,
-  getMe,
   getToken,
   logout,
   PortalType,
@@ -473,6 +472,9 @@ export default function ProtectedDashboard({
         setGovernance(existing.governance);
         setLoading(false);
         setError("");
+        if (Date.now() - existing.cachedAt < DASHBOARD_CACHE_TTL) {
+          return;
+        }
       } else {
         setLoading(true);
       }

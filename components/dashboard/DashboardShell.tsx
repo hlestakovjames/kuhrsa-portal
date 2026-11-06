@@ -15,6 +15,7 @@ type DashboardShellProps = {
   portal: PortalType;
   user: AuthUser;
   children: ReactNode;
+  onLogout?: () => void;
 };
 
 const titles: Record<PortalType, string> = {
@@ -27,16 +28,17 @@ export default function DashboardShell({
   portal,
   user,
   children,
+  onLogout,
 }: DashboardShellProps) {
   const router = useRouter();
 
   const [mobileOpen, setMobileOpen] =
     useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = onLogout ?? (() => {
     logout();
     router.push("/login");
-  };
+  });
 
   return (
     <div className="h-screen overflow-hidden bg-[#F6FBFD]">

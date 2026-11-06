@@ -423,6 +423,9 @@ export default function ProtectedDashboard({
   const [dashboard, setDashboard] =
     useState<DashboardResponse | null>(null);
 
+  const [governance, setGovernance] =
+    useState<ExecutiveGovernanceSnapshot | null>(null);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -491,9 +494,36 @@ export default function ProtectedDashboard({
           );
         }
 
+        let governanceData: ExecutiveGovernanceSnapshot | null = null;
+
+        if (portal === "executive") {
+          const governanceResponse = await fetch(
+            `${API_URL}/governance/me`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              cache: "no-store",
+            },
+          );
+          const governanceRaw = await governanceResponse.json();
+
+          if (!governanceResponse.ok) {
+            const governanceError = governanceRaw as DashboardErrorResponse;
+            throw new Error(
+              governanceError.message ??
+                "Unable to load your executive appointments and permissions.",
+            );
+          }
+
+          governanceData = governanceRaw as ExecutiveGovernanceSnapshot;
+        }
+
         if (mounted) {
           setUser(authenticatedUser);
           setDashboard(data);
+          setGovernance(governanceData);
         }
       } catch (dashboardError) {
         if (mounted) {
@@ -611,6 +641,7 @@ export default function ProtectedDashboard({
       <ExecutiveDashboardWorkspace
         user={user}
         dashboard={dashboard}
+        governance={governance}
       />
     );
   } else if (

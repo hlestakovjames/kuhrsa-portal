@@ -406,9 +406,11 @@ export default function MemberDashboardWorkspace({
 
     void loadFinance();
     window.addEventListener("focus", loadFinance);
+    const refreshInterval = window.setInterval(loadFinance, 30000);
     return () => {
       active = false;
       window.removeEventListener("focus", loadFinance);
+      window.clearInterval(refreshInterval);
     };
   }, []);
 

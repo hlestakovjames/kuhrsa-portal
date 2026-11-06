@@ -363,7 +363,6 @@ export default function ExecutiveDashboardWorkspace({
             No active governance appointment was returned for this account. Access roles may still be present, but an office and term have not been assigned or activated.
           </div>
         )}
-      </section>
 
         {effectivePermissions.length > 0 ? (
           <div className="mt-4 rounded-2xl border border-black/[0.06] bg-white p-5">

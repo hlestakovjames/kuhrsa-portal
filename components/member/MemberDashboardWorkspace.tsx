@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import type { AuthUser } from "@/lib/auth";
+import { getToken, logout } from "@/lib/auth";
 
 type MemberDashboard = {
   portal: "member";
@@ -63,6 +65,25 @@ type MemberDashboard = {
     } | null;
   } | null;
 };
+
+type MemberFinanceSummary = {
+  currency: string;
+  totalCharged: number;
+  allocatedPaid: number;
+  outstandingBalance: number;
+  completedPaymentsAmount: number;
+  unallocatedCompletedPayments: number;
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ?? "http://localhost:3001";
+
+function money(value: number, currency = "KES") {
+  return new Intl.NumberFormat("en-KE", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
 
 type MemberDashboardWorkspaceProps = {
   user: AuthUser;
@@ -337,6 +358,59 @@ export default function MemberDashboardWorkspace({
 }: MemberDashboardWorkspaceProps) {
   const member = dashboard.member;
   const name = displayName(user);
+  const [financeSummary, setFinanceSummary] = useState<MemberFinanceSummary | null>(null);
+  const [financeLoading, setFinanceLoading] = useState(true);
+  const [financeError, setFinanceError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadFinance() {
+      const token = getToken();
+      if (!token) {
+        if (active) {
+          setFinanceError("Sign in again to view your latest finance information.");
+          setFinanceLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/finance/member/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (response.status === 401) {
+          logout();
+          throw new Error("Your session has expired. Sign in again to view your finance information.");
+        }
+        if (!response.ok) {
+          throw new Error(Array.isArray(payload?.message)
+            ? payload.message.join(", ")
+            : payload?.message || "Finance information is temporarily unavailable.");
+        }
+        if (active) {
+          setFinanceSummary(payload?.summary ?? null);
+          setFinanceError(null);
+        }
+      } catch (loadError) {
+        if (active) {
+          setFinanceError(loadError instanceof Error ? loadError.message : "Finance information is temporarily unavailable.");
+        }
+      } finally {
+        if (active) setFinanceLoading(false);
+      }
+    }
+
+    void loadFinance();
+    window.addEventListener("focus", loadFinance);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadFinance);
+    };
+  }, []);
 
   if (!member) {
     return (
@@ -444,8 +518,14 @@ export default function MemberDashboardWorkspace({
 
         <StatCard
           title="Finance"
-          value={statusLabel(member.financialStatus)}
-          subtitle="Current financial status"
+          value={financeSummary
+            ? money(financeSummary.outstandingBalance, financeSummary.currency)
+            : financeLoading
+              ? "Loading…"
+              : statusLabel(member.financialStatus)}
+          subtitle={financeSummary
+            ? `${money(financeSummary.allocatedPaid, financeSummary.currency)} paid · ${money(financeSummary.totalCharged, financeSummary.currency)} charged`
+            : financeError || "Current financial status"}
           href="/dashboard/finance"
           icon="finance"
         />
@@ -481,6 +561,34 @@ export default function MemberDashboardWorkspace({
           href="/dashboard/communication/notifications"
           icon="notifications"
         />
+      </section>
+
+      <section className="mt-6 rounded-[1.5rem] bg-white p-6 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ring-1 ring-black/[0.06] sm:p-7">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#168DB8]">Live finance snapshot</p>
+            <h2 className="mt-1 text-xl font-black text-[#0B2633]">My financial position</h2>
+            <p className="mt-1 text-sm text-black/45">Amounts are read from your current KUHRSA finance records.</p>
+          </div>
+          <Link href="/dashboard/finance" className="inline-flex rounded-xl border border-[#168DB8]/20 px-4 py-2.5 text-sm font-bold text-[#168DB8] transition hover:bg-[#168DB8]/5">
+            View finance details
+          </Link>
+        </div>
+
+        {financeLoading ? (
+          <p className="mt-5 text-sm text-black/45">Loading your latest finance records…</p>
+        ) : financeError ? (
+          <p role="status" className="mt-5 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{financeError}</p>
+        ) : financeSummary ? (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <DetailRow label="Total charges" value={money(financeSummary.totalCharged, financeSummary.currency)} />
+            <DetailRow label="Allocated payments" value={money(financeSummary.allocatedPaid, financeSummary.currency)} />
+            <DetailRow label="Outstanding balance" value={money(financeSummary.outstandingBalance, financeSummary.currency)} />
+            <DetailRow label="Completed payments" value={money(financeSummary.completedPaymentsAmount, financeSummary.currency)} />
+          </div>
+        ) : (
+          <p className="mt-5 text-sm text-black/45">No finance summary is currently available.</p>
+        )}
       </section>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">

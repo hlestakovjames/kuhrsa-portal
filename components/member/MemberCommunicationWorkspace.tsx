@@ -1,6 +1,9 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { getToken } from "@/lib/auth";
 
 import { memberCommunicationMock } from "@/lib/mock/member-communication";
 
@@ -99,6 +102,271 @@ function Header({
   );
 }
 
+
+type MemberNotification = {
+  id: string;
+  type: string;
+  channel: "IN_APP";
+  status: string;
+  subject: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  readAt: string | null;
+};
+
+type MemberNotificationList = {
+  data: MemberNotification[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
+  "http://localhost:3001";
+
+async function notificationRequest<T>(
+  path: string,
+  method: "GET" | "PATCH" = "GET",
+): Promise<T> {
+  const token = getToken();
+  if (!token) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = Array.isArray(payload?.message)
+      ? payload.message.join(", ")
+      : payload?.message;
+    throw new Error(
+      typeof message === "string"
+        ? message
+        : response.status === 401
+          ? "Your session has expired. Please sign in again."
+          : `Notifications are unavailable (HTTP ${response.status}).`,
+    );
+  }
+
+  return payload as T;
+}
+
+function formatNotificationDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Date unavailable"
+    : date.toLocaleString("en-KE", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
+
+function MemberNotificationCountTile() {
+  const router = useRouter();
+  const [count, setCount] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    notificationRequest<{ unreadCount: number }>("/notifications/me/unread-count")
+      .then((result) => {
+        if (active) setCount(result.unreadCount);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        const message = loadError instanceof Error ? loadError.message : "Unavailable";
+        if (/session|sign in/i.test(message)) router.replace("/login");
+        setError(message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  return (
+    <InfoTile
+      label="Unread Notifications"
+      value={count === null ? (error ? "Unavailable" : "Loading…") : String(count)}
+    />
+  );
+}
+
+function MemberNotificationFeed({ compact = false }: { compact?: boolean }) {
+  const router = useRouter();
+  const [notifications, setNotifications] = useState<MemberNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const limit = compact ? 3 : 100;
+      const [feed, summary] = await Promise.all([
+        notificationRequest<MemberNotificationList>(`/notifications/me?limit=${limit}`),
+        notificationRequest<{ unreadCount: number }>("/notifications/me/unread-count"),
+      ]);
+      setNotifications(feed.data);
+      setUnreadCount(summary.unreadCount);
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Unable to load notifications.";
+      if (/session|sign in/i.test(message)) router.replace("/login");
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [compact, router]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function markAsRead(id: string) {
+    setUpdating(id);
+    try {
+      await notificationRequest(`/notifications/me/${encodeURIComponent(id)}/read`, "PATCH");
+      const now = new Date().toISOString();
+      setNotifications((current) =>
+        current.map((item) => item.id === id ? { ...item, readAt: now } : item),
+      );
+      setUnreadCount((current) => Math.max(0, current - 1));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update notification.");
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  async function markAllAsRead() {
+    setUpdating("all");
+    try {
+      await notificationRequest("/notifications/me/read-all", "PATCH");
+      const now = new Date().toISOString();
+      setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? now })));
+      setUnreadCount(0);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update notifications.");
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  return (
+    <section className={compact ? "space-y-3" : "mt-6 space-y-3"}>
+      {!compact && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-black/45">
+            {unreadCount} unread {unreadCount === 1 ? "notification" : "notifications"}
+          </p>
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void markAllAsRead()}
+                disabled={updating !== null}
+                className="rounded-xl border border-black/10 px-3 py-2 text-xs font-bold text-[#0B2633] hover:bg-black/[0.03] disabled:opacity-50"
+              >
+                Mark all as read
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="rounded-xl border border-black/10 px-3 py-2 text-xs font-bold text-[#0B2633] hover:bg-black/[0.03] disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {error}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="rounded-2xl border border-black/[0.06] bg-white p-5 text-sm text-black/45">
+          Loading your notifications…
+        </p>
+      ) : notifications.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-black/10 bg-white p-6">
+          <p className="text-sm font-bold text-[#0B2633]">No in-app notifications yet.</p>
+          <p className="mt-1 text-xs leading-5 text-black/45">
+            Important updates sent to your KUHRSA portal will appear here.
+          </p>
+        </div>
+      ) : (
+        notifications.map((notification) => (
+          <article
+            key={notification.id}
+            className={`rounded-2xl border bg-white p-5 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ${notification.readAt ? "border-black/[0.06]" : "border-[#168DB8]/25"}`}
+          >
+            <div className="flex items-start gap-4">
+              <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#168DB8]/10 text-[#168DB8]">
+                <span className="text-sm font-black">!</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-black text-[#0B2633]">
+                      {notification.subject || notification.type.replace(/_/g, " ")}
+                    </p>
+                    <p className="mt-1 text-[10px] font-black uppercase tracking-[0.1em] text-[#168DB8]">
+                      {notification.type.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                  <p className="text-[10px] font-bold text-black/30">
+                    {formatNotificationDate(notification.createdAt)}
+                  </p>
+                </div>
+              </div>
+              {!notification.readAt && (
+                <button
+                  type="button"
+                  onClick={() => void markAsRead(notification.id)}
+                  disabled={updating !== null}
+                  className="shrink-0 rounded-lg px-3 py-2 text-[11px] font-black text-[#168DB8] hover:bg-[#168DB8]/5 disabled:opacity-50"
+                >
+                  {updating === notification.id ? "Saving…" : "Mark read"}
+                </button>
+              )}
+              {notification.readAt && (
+                <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-black/15" />
+              )}
+            </div>
+          </article>
+        ))
+      )}
+
+      {compact && notifications.length > 0 && (
+        <Link
+          href="/dashboard/communication/notifications"
+          className="inline-flex text-xs font-black text-[#168DB8] hover:underline"
+        >
+          View all notifications
+        </Link>
+      )}
+    </section>
+  );
+}
+
 export default function MemberCommunicationWorkspace({
   view,
 }: MemberCommunicationWorkspaceProps) {
@@ -112,12 +380,7 @@ export default function MemberCommunicationWorkspace({
           />
 
           <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <InfoTile
-              label="Unread Notifications"
-              value={String(
-                mock.overview.unreadNotifications,
-              )}
-            />
+            <MemberNotificationCountTile />
 
             <InfoTile
               label="Unread Messages"
@@ -146,38 +409,8 @@ export default function MemberCommunicationWorkspace({
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[#168DB8]">
                 Recent Notifications
               </p>
-
-              <div className="mt-5 space-y-3">
-                {mock.notifications
-                  .slice(0, 3)
-                  .map((notification) => (
-                    <Link
-                      href="/dashboard/communication/notifications"
-                      key={notification.id}
-                      className="block rounded-xl border border-black/[0.05] p-4 transition hover:bg-[#168DB8]/[0.03]"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-black text-[#0B2633]">
-                            {notification.title}
-                          </p>
-
-                          <p className="mt-1 text-xs leading-5 text-black/45">
-                            {notification.message}
-                          </p>
-                        </div>
-
-                        {!notification.read && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-[#168DB8]" />
-                        )}
-                      </div>
-
-                      <p className="mt-2 text-[10px] font-bold text-black/25">
-                        {notification.date} ·{" "}
-                        {notification.time}
-                      </p>
-                    </Link>
-                  ))}
+              <div className="mt-5">
+                <MemberNotificationFeed compact />
               </div>
             </div>
 
@@ -221,58 +454,9 @@ export default function MemberCommunicationWorkspace({
         <>
           <Header
             title="Notifications"
-            description="Review notifications generated for your KUHRSA member account."
+            description="Review and manage in-app notifications generated for your authenticated KUHRSA account."
           />
-
-          <section className="mt-6 space-y-3">
-            {mock.notifications.map(
-              (notification) => (
-                <article
-                  key={notification.id}
-                  className={`rounded-2xl border bg-white p-5 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ${
-                    notification.read
-                      ? "border-black/[0.06]"
-                      : "border-[#168DB8]/20"
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#168DB8]/10 text-[#168DB8]">
-                      <span className="text-sm font-black">
-                        !
-                      </span>
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-sm font-black text-[#0B2633]">
-                            {notification.title}
-                          </p>
-
-                          <p className="mt-1 text-xs font-black uppercase tracking-[0.1em] text-[#168DB8]">
-                            {notification.type}
-                          </p>
-                        </div>
-
-                        <p className="text-[10px] font-bold text-black/30">
-                          {notification.date} ·{" "}
-                          {notification.time}
-                        </p>
-                      </div>
-
-                      <p className="mt-3 text-sm leading-6 text-black/50">
-                        {notification.message}
-                      </p>
-                    </div>
-
-                    {!notification.read && (
-                      <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#168DB8]" />
-                    )}
-                  </div>
-                </article>
-              ),
-            )}
-          </section>
+          <MemberNotificationFeed />
         </>
       )}
 

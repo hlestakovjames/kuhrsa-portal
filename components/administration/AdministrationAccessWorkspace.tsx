@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import RoleManagementWorkspace from "@/components/administration/RoleManagementWorkspace";
+import UsersWorkspace from "@/components/users/UsersWorkspace";
+import { getToken } from "@/lib/auth";
 
 type AccessView =
   | "users"
@@ -16,33 +19,6 @@ type AccessView =
 type Props = {
   view: AccessView;
 };
-
-const users = [
-  {
-    name: "Avery Morgan",
-    email: "avery.morgan@example.test",
-    role: "System Administrator",
-    status: "Active",
-  },
-  {
-    name: "Jordan Otieno",
-    email: "jordan.otieno@example.test",
-    role: "Executive - Treasurer",
-    status: "Active",
-  },
-  {
-    name: "Taylor Wambui",
-    email: "taylor.wambui@example.test",
-    role: "Executive - Secretary General",
-    status: "Active",
-  },
-  {
-    name: "Casey Kariuki",
-    email: "casey.kariuki@example.test",
-    role: "Content Administrator",
-    status: "Active",
-  },
-];
 
 const assignments = [
   ["Chairperson", "Executive Committee", "Current Term", "Assigned"],
@@ -72,13 +48,6 @@ const reviews = [
   ["Jordan Otieno", "Executive - Treasurer", "06 Sep 2026", "Approved"],
   ["Taylor Wambui", "Executive - Secretary General", "05 Sep 2026", "Pending"],
   ["Casey Kariuki", "Content Administrator", "01 Sep 2026", "Approved"],
-];
-
-const logs = [
-  ["08 Sep 2026", "Avery Morgan", "Updated role permissions", "Access"],
-  ["08 Sep 2026", "Jordan Otieno", "Viewed finance records", "Finance"],
-  ["07 Sep 2026", "Taylor Wambui", "Accessed governance records", "Governance"],
-  ["06 Sep 2026", "Casey Kariuki", "Published announcement", "Content"],
 ];
 
 function Header({
@@ -154,98 +123,99 @@ function Badge({ value }: { value: string }) {
   );
 }
 
+const ACCESS_API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
+  "http://localhost:3001";
+
+type AccessSummary = {
+  users: number | null;
+  roles: number | null;
+  permissions: number | null;
+  activeRoleAssignments: number | null;
+};
+
 function DashboardView() {
+  const [summary, setSummary] = useState<AccessSummary>({
+    users: null,
+    roles: null,
+    permissions: null,
+    activeRoleAssignments: null,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSummary() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
+      const requestList = async (path: string) => {
+        try {
+          const response = await fetch(`${ACCESS_API_URL}${path}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+          if (!response.ok) return null;
+          const data: unknown = await response.json().catch(() => null);
+          return Array.isArray(data) ? data : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const [users, roles, permissions] = await Promise.all([
+        requestList("/users"),
+        requestList("/roles"),
+        requestList("/permissions"),
+      ]);
+
+      if (!mounted) return;
+
+      const roleRecords = roles as Array<{ userCount?: number }> | null;
+      setSummary({
+        users: users?.length ?? null,
+        roles: roles?.length ?? null,
+        permissions: permissions?.length ?? null,
+        activeRoleAssignments: roleRecords
+          ? roleRecords.reduce((total, role) => total + (Number(role.userCount) || 0), 0)
+          : null,
+      });
+      setLoading(false);
+    }
+
+    void loadSummary();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const displayCount = (value: number | null) =>
+    loading ? "…" : value === null ? "Unavailable" : value.toLocaleString("en-KE");
+
   return (
     <div className="space-y-6">
       <Header
         title="User & Access Management"
-        description="Manage users, roles, permissions, executive position assignments, access rules, delegated authority, reviews and access logs."
+        description="Live organization-scoped user, role and permission totals from the KUHRSA backend. Access to each dataset follows the permissions assigned to your account."
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="System Users" value="84" />
-        <StatCard label="Configured Roles" value="18" />
-        <StatCard label="Permissions" value="124" />
-        <StatCard label="Current Assignments" value="16" />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-black text-[#0B2633]">
-                Executive Assignments
-              </h2>
-
-              <p className="mt-1 text-sm text-black/40">
-                Current synthetic office bearer assignments.
-              </p>
-            </div>
-
-            <Link
-              href="/administration/access/positions"
-              className="text-sm font-black text-[#CE26A4]"
-            >
-              Manage →
-            </Link>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {assignments.slice(0, 4).map((item) => (
-              <div
-                key={item[0]}
-                className="rounded-2xl bg-[#F8FBFC] p-4"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-black text-[#0B2633]">
-                    {item[0]}
-                  </p>
-
-                  <Badge value={item[3]} />
-                </div>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {item[1]} • {item[2]}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <h2 className="text-lg font-black text-[#0B2633]">
-            Access Controls
-          </h2>
-
-          <div className="mt-5 space-y-3">
-            {accessRules.slice(0, 5).map((item) => (
-              <div
-                key={item[0]}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-[#F8FBFC] p-4"
-              >
-                <div>
-                  <p className="text-sm font-black text-[#0B2633]">
-                    {item[0]}
-                  </p>
-
-                  <p className="mt-1 text-xs text-black/40">
-                    {item[1]}
-                  </p>
-                </div>
-
-                <Badge value={item[2]} />
-              </div>
-            ))}
-          </div>
-        </div>
+        <StatCard label="System Users" value={displayCount(summary.users)} />
+        <StatCard label="Configured Roles" value={displayCount(summary.roles)} />
+        <StatCard label="Permissions" value={displayCount(summary.permissions)} />
+        <StatCard label="Active Role Assignments" value={displayCount(summary.activeRoleAssignments)} />
       </section>
 
       <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <h2 className="text-lg font-black text-[#0B2633]">
-          Access Management
-        </h2>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <h2 className="text-lg font-black text-[#0B2633]">Access Management</h2>
+        <p className="mt-1 text-sm text-black/45">
+          Open the live management screens. Protected system roles and permissions remain read-only; custom role grants are validated by the backend.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {[
             ["Users", "/administration/users"],
             ["Roles", "/administration/access/roles"],
@@ -271,64 +241,7 @@ function DashboardView() {
 }
 
 function UsersView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Users"
-        description="Manage KUHRSA system identities and their assigned access."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Active Users" value="79" />
-        <StatCard label="Pending Access" value="3" />
-        <StatCard label="Suspended" value="2" />
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["User", "Email", "Role", "Status"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {users.map((item) => (
-                <tr
-                  key={item.email}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633] first:pl-0">
-                    {item.name}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs text-black/50">
-                    {item.email}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/55">
-                    {item.role}
-                  </td>
-
-                  <td className="px-3 py-4">
-                    <Badge value={item.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
+  return <UsersWorkspace />;
 }
 
 function RolesView() {
@@ -339,45 +252,162 @@ function PermissionsView() {
   return <RoleManagementWorkspace view="permissions" />;
 }
 
+type GovernanceAssignment = {
+  id: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  member?: {
+    memberNumber?: string | null;
+    user?: { firstName?: string | null; lastName?: string | null } | null;
+  } | null;
+  position?: { name?: string; code?: string } | null;
+  term?: { name?: string; code?: string } | null;
+  roles?: Array<{ role?: { name?: string; code?: string } }>;
+};
+
 function PositionAssignmentsView() {
+  const [assignments, setAssignments] = useState<GovernanceAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAssignments() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) {
+          setError("Your session is unavailable. Sign in again to view governance assignments.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${ACCESS_API_URL}/governance/assignments`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (response.status === 403) {
+            throw new Error("Your account does not have permission to view executive position assignments.");
+          }
+          throw new Error(`Unable to load governance assignments (HTTP ${response.status}).`);
+        }
+        const data: unknown = await response.json();
+        if (!Array.isArray(data)) {
+          throw new Error("The governance assignments response was not in the expected format.");
+        }
+        if (mounted) setAssignments(data as GovernanceAssignment[]);
+      } catch (loadError) {
+        if (mounted) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load governance assignments.");
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadAssignments();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const formatDate = (value: string) =>
+    new Date(value).toLocaleDateString("en-KE", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+
+  const statusClass = (status: string) => {
+    const normalized = status.toUpperCase();
+    if (normalized === "ACTIVE") return "bg-emerald-50 text-emerald-700";
+    if (normalized === "PENDING") return "bg-amber-50 text-amber-700";
+    if (normalized === "REVOKED" || normalized === "ENDED") return "bg-black/[0.06] text-black/50";
+    return "bg-[#CE26A4]/10 text-[#CE26A4]";
+  };
+
   return (
     <div className="space-y-6">
       <Header
         title="Position Assignments"
-        description="Assign users to KUHRSA executive positions and governance responsibilities."
+        description="Organization-scoped executive and governance appointments loaded from the KUHRSA backend."
       />
 
-      <section className="space-y-3">
-        {assignments.map(([position, committee, term, status]) => (
-          <div
-            key={position}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {position}
-                </p>
+      <section className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Total Assignments" value={loading ? "…" : String(assignments.length)} />
+        <StatCard label="Active" value={loading ? "…" : String(assignments.filter((item) => item.status.toUpperCase() === "ACTIVE").length)} />
+        <StatCard label="Pending" value={loading ? "…" : String(assignments.filter((item) => item.status.toUpperCase() === "PENDING").length)} />
+      </section>
 
-                <p className="mt-1 text-xs text-black/40">
-                  {committee} • {term}
-                </p>
-              </div>
-
-              <Badge value={status} />
-            </div>
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[#0B2633]">Governance appointments</h2>
+            <p className="mt-1 text-sm text-black/45">Current and historical position assignments.</p>
           </div>
-        ))}
+          <span className="rounded-full bg-[#F8FBFC] px-3 py-1.5 text-xs font-bold text-black/50">
+            {loading ? "Loading…" : `${assignments.length} records`}
+          </span>
+        </div>
+
+        {error ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            {error}
+          </div>
+        ) : loading ? (
+          <p className="mt-6 text-sm text-black/45">Loading governance assignments…</p>
+        ) : assignments.length === 0 ? (
+          <p className="mt-6 rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/50">
+            No position assignments have been recorded for this organization.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead>
+                <tr className="border-b border-black/[0.06]">
+                  {["Position", "Office bearer", "Leadership term", "Access roles", "Period", "Status"].map((label) => (
+                    <th key={label} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((assignment) => {
+                  const fullName = [assignment.member?.user?.firstName, assignment.member?.user?.lastName].filter(Boolean).join(" ");
+                  return (
+                    <tr key={assignment.id} className="border-b border-black/[0.05] last:border-0">
+                      <td className="px-3 py-4 first:pl-0">
+                        <p className="text-sm font-black text-[#0B2633]">{assignment.position?.name ?? "Unspecified position"}</p>
+                        <p className="mt-1 text-[11px] text-black/40">{assignment.position?.code ?? "—"}</p>
+                      </td>
+                      <td className="px-3 py-4">
+                        <p className="text-sm font-semibold text-[#0B2633]">{fullName || "Member record"}</p>
+                        <p className="mt-1 text-[11px] text-black/40">{assignment.member?.memberNumber ?? "Member number unavailable"}</p>
+                      </td>
+                      <td className="px-3 py-4 text-xs text-black/55">{assignment.term?.name ?? assignment.term?.code ?? "—"}</td>
+                      <td className="px-3 py-4 text-xs text-black/55">
+                        {assignment.roles?.length ? assignment.roles.map((item) => item.role?.name ?? item.role?.code).filter(Boolean).join(", ") : "No additional role"}
+                      </td>
+                      <td className="px-3 py-4 text-xs text-black/55">{formatDate(assignment.startsAt)} – {formatDate(assignment.endsAt)}</td>
+                      <td className="px-3 py-4">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${statusClass(assignment.status)}`}>{assignment.status.replaceAll("_", " ")}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <div className="rounded-2xl border border-[#CE26A4]/10 bg-[#FFF7FC] p-4">
-        <p className="text-xs font-black uppercase tracking-[0.12em] text-[#CE26A4]">
-          Executive Architecture
-        </p>
-
+        <p className="text-xs font-black uppercase tracking-[0.12em] text-[#CE26A4]">Governance access model</p>
         <p className="mt-2 text-sm leading-6 text-black/55">
-          Position assignment identifies the office bearer. Roles and
-          permissions determine what that office bearer can access and do.
+          A position identifies the office bearer. Leadership terms define the period, while assigned roles provide scoped permissions. Appointment creation, activation, ending and revocation remain controlled by their dedicated backend permissions.
         </p>
       </div>
     </div>
@@ -492,56 +522,161 @@ function ReviewsView() {
   );
 }
 
+type AuditLogRecord = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  reason: string | null;
+  createdAt: string;
+  actor: {
+    id: string;
+    firstName: string | null;
+    middleName: string | null;
+    lastName: string | null;
+    email: string;
+  } | null;
+};
+
 function LogsView() {
+  const [records, setRecords] = useState<AuditLogRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAuditLogs() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) {
+          setError("Your session is unavailable. Sign in again to view audit logs.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${ACCESS_API_URL}/dashboard/administration`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          if (response.status === 403) {
+            throw new Error("Your account does not have administration access to view organization audit logs.");
+          }
+          throw new Error(payload?.message || `Unable to load audit logs (HTTP ${response.status}).`);
+        }
+
+        const recent = payload?.audit?.recent;
+        if (!Array.isArray(recent)) {
+          throw new Error("The administration response did not include audit records in the expected format.");
+        }
+
+        if (mounted) setRecords(recent as AuditLogRecord[]);
+      } catch (loadError) {
+        if (mounted) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load audit logs.");
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadAuditLogs();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const formatDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? "Date unavailable"
+      : date.toLocaleString("en-KE", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+  };
+
+  const actorName = (actor: AuditLogRecord["actor"]) => {
+    if (!actor) return "System / unknown actor";
+    const name = [actor.firstName, actor.middleName, actor.lastName]
+      .filter((part): part is string => Boolean(part?.trim()))
+      .join(" ");
+    return name || actor.email;
+  };
+
   return (
     <div className="space-y-6">
       <Header
         title="Access Logs"
-        description="Auditable records of authentication, access and authorization activity."
+        description="Recent organization audit records supplied by the KUHRSA administration backend. These records reflect actions actually written to the audit log; they are not a complete authentication or page-view history."
       />
 
+      <section className="grid gap-4 sm:grid-cols-2">
+        <StatCard label="Recent Audit Records" value={loading ? "…" : String(records.length)} />
+        <StatCard label="Audit Source" value="Live backend" />
+      </section>
+
       <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["Date", "User", "Action", "Area"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {logs.map(([date, user, action, area]) => (
-                <tr
-                  key={`${date}-${user}-${action}`}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-xs text-black/50 first:pl-0">
-                    {date}
-                  </td>
-
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633]">
-                    {user}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs text-black/55">
-                    {action}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/50">
-                    {area}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[#0B2633]">Organization audit trail</h2>
+            <p className="mt-1 text-sm text-black/45">The backend currently returns the eight most recent organization audit records.</p>
+          </div>
+          <span className="rounded-full bg-[#F8FBFC] px-3 py-1.5 text-xs font-bold text-black/50">
+            {loading ? "Loading…" : `${records.length} records`}
+          </span>
         </div>
+
+        {error ? (
+          <div role="alert" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            {error}
+          </div>
+        ) : loading ? (
+          <p className="mt-6 text-sm text-black/45">Loading organization audit records…</p>
+        ) : records.length === 0 ? (
+          <p className="mt-6 rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/50">
+            No audit records have been returned for this organization.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead>
+                <tr className="border-b border-black/[0.06]">
+                  {["Date & time", "Actor", "Action", "Entity", "Reason"].map((item) => (
+                    <th key={item} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">
+                      {item}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((record) => (
+                  <tr key={record.id} className="border-b border-black/[0.05] last:border-0">
+                    <td className="whitespace-nowrap px-3 py-4 text-xs text-black/50 first:pl-0">{formatDate(record.createdAt)}</td>
+                    <td className="px-3 py-4">
+                      <p className="text-sm font-black text-[#0B2633]">{actorName(record.actor)}</p>
+                      {record.actor?.email && <p className="mt-1 text-[11px] text-black/40">{record.actor.email}</p>}
+                    </td>
+                    <td className="px-3 py-4 text-xs font-semibold text-black/60">{record.action.replaceAll("_", " ")}</td>
+                    <td className="px-3 py-4 text-xs text-black/55">
+                      <p>{record.entityType}</p>
+                      {record.entityId && <p className="mt-1 text-[10px] text-black/35">{record.entityId}</p>}
+                    </td>
+                    <td className="max-w-xs px-3 py-4 text-xs text-black/50">{record.reason || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

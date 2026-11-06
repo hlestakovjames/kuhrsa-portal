@@ -361,6 +361,9 @@ export default function MemberDashboardWorkspace({
   const [financeSummary, setFinanceSummary] = useState<MemberFinanceSummary | null>(null);
   const [financeLoading, setFinanceLoading] = useState(true);
   const [financeError, setFinanceError] = useState<string | null>(null);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number | null>(null);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -410,6 +413,58 @@ export default function MemberDashboardWorkspace({
     return () => {
       active = false;
       window.removeEventListener("focus", loadFinance);
+      window.clearInterval(refreshInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadUnreadNotifications() {
+      const token = getToken();
+      if (!token) {
+        if (active) {
+          setNotificationsError("Sign in again to view notifications.");
+          setNotificationsLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/notifications/me/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (response.status === 401) {
+          logout();
+          throw new Error("Your session has expired. Sign in again to view notifications.");
+        }
+        if (!response.ok) {
+          throw new Error(Array.isArray(payload?.message)
+            ? payload.message.join(", ")
+            : payload?.message || "Notification summary is temporarily unavailable.");
+        }
+        if (active) {
+          setUnreadNotificationCount(Number(payload?.unreadCount ?? 0));
+          setNotificationsError(null);
+        }
+      } catch (loadError) {
+        if (active) {
+          setNotificationsError(loadError instanceof Error ? loadError.message : "Notification summary is temporarily unavailable.");
+        }
+      } finally {
+        if (active) setNotificationsLoading(false);
+      }
+    }
+
+    void loadUnreadNotifications();
+    window.addEventListener("focus", loadUnreadNotifications);
+    const refreshInterval = window.setInterval(loadUnreadNotifications, 30000);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadUnreadNotifications);
       window.clearInterval(refreshInterval);
     };
   }, []);
@@ -558,8 +613,12 @@ export default function MemberDashboardWorkspace({
 
         <StatCard
           title="Notifications"
-          value="Not available"
-          subtitle="No notification summary connected yet"
+          value={notificationsLoading
+            ? "Loading…"
+            : unreadNotificationCount === null
+              ? "Unavailable"
+              : String(unreadNotificationCount)}
+          subtitle={notificationsError || "Unread in-app notifications"}
           href="/dashboard/communication/notifications"
           icon="notifications"
         />

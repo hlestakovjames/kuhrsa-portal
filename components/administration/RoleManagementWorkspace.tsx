@@ -80,9 +80,9 @@ function Header({ title, description }: { title: string; description: string }) 
 function Panel({ children }: { children: React.ReactNode }) {
   return <section className="rounded-3xl bg-white p-5 ring-1 ring-black/[0.06] sm:p-6">{children}</section>;
 }
-function ActionButton({ children, onClick, disabled = false, tone = "dark" }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; tone?: "dark" | "light" | "danger" }) {
+function ActionButton({ children, onClick, disabled = false, tone = "dark", type = "button" }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; tone?: "dark" | "light" | "danger"; type?: "button" | "submit" }) {
   const style = tone === "danger" ? "border border-rose-200 text-rose-700 hover:bg-rose-50" : tone === "light" ? "border border-black/10 text-[#0B2633] hover:bg-black/[0.03]" : "bg-[#0B2633] text-white hover:bg-[#163D4D]";
-  return <button type="button" onClick={onClick} disabled={disabled} className={`rounded-xl px-4 py-2.5 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-40 ${style}`}>{children}</button>;
+  return <button type={type} onClick={onClick} disabled={disabled} className={`rounded-xl px-4 py-2.5 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-40 ${style}`}>{children}</button>;
 }
 
 export default function RoleManagementWorkspace({ view }: { view: View }) {
@@ -248,7 +248,7 @@ export default function RoleManagementWorkspace({ view }: { view: View }) {
             <input required minLength={2} maxLength={100} value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="Role name" className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" />
             <input required minLength={2} maxLength={100} value={roleCode} onChange={(e) => setRoleCode(e.target.value.toUpperCase())} placeholder="ROLE_CODE" className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" />
             <textarea required maxLength={500} value={roleDescription} onChange={(e) => setRoleDescription(e.target.value)} placeholder="Describe this role" className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" rows={3} />
-            <div className="flex gap-2"><ActionButton disabled={busy}>Create role</ActionButton><ActionButton tone="light" onClick={() => setShowCreate(false)}>Close</ActionButton></div>
+            <div className="flex gap-2"><ActionButton type="submit" disabled={busy}>Create role</ActionButton><ActionButton tone="light" onClick={() => setShowCreate(false)}>Close</ActionButton></div>
           </form> : null}
           <div className="mt-4 space-y-2">
             {roles.map((role) => <button key={role.id} type="button" onClick={() => setSelectedRoleId(role.id)} className={`w-full rounded-2xl border p-3 text-left transition ${selectedRoleId === role.id ? "border-[#168DB8] bg-[#168DB8]/5" : "border-black/[0.06] hover:bg-black/[0.02]"}`}>
@@ -275,7 +275,7 @@ export default function RoleManagementWorkspace({ view }: { view: View }) {
             {view === "roles" ? <>
               <Panel>
                 <h3 className="text-sm font-black text-[#0B2633]">Assign this role</h3>
-                <p className="mt-1 text-xs leading-5 text-black/45">System Owner identities cannot be assigned. Super Administrator and Administrator appointments require their dedicated protected permissions and enforce organization limits.</p>
+                <p className="mt-1 text-xs leading-5 text-black/45">System Owner identities cannot be assigned. MEMBER is the automatic baseline and cannot be reassigned here. Super Administrator and Administrator appointments require dedicated protected permissions and enforce organization limits.</p>
                 <form onSubmit={assignUser} className="mt-4 grid gap-3 sm:grid-cols-2">
                   <label className="text-xs font-bold text-black/55 sm:col-span-2">User
                     <select required value={userId} onChange={(e) => setUserId(e.target.value)} className="mt-1.5 w-full rounded-xl border bg-white px-3 py-2.5 text-sm">
@@ -284,8 +284,8 @@ export default function RoleManagementWorkspace({ view }: { view: View }) {
                     </select>
                   </label>
                   <label className="text-xs font-bold text-black/55">Starts at{detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE" ? " (required)" : " (optional)"}<input type="datetime-local" required={detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE"} value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
-                  <label className="text-xs font-bold text-black/55">Ends at{detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE" ? " (required)" : " (optional)"}<input type="datetime-local" required={detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE"} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
-                  <div className="sm:col-span-2"><ActionButton disabled={busy || !userId}>Assign role</ActionButton></div>
+                  <label className="text-xs font-bold text-black/55">Ends at{detail.code === "SUPER_ADMINISTRATOR" ? " (not applicable)" : detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE" ? " (required)" : " (optional)"}<input type="datetime-local" disabled={detail.code === "SUPER_ADMINISTRATOR"} required={detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE"} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+                  <div className="sm:col-span-2"><ActionButton type="submit" disabled={busy || !userId || detail.code === "MEMBER"}>Assign role</ActionButton></div>
                 </form>
               </Panel>
               <Panel>

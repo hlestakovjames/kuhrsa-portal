@@ -152,9 +152,10 @@ function StatCard({
 export default function ExecutiveDashboardWorkspace({
   user,
   dashboard,
+  governance,
 }: ExecutiveDashboardWorkspaceProps) {
-  const roles = getRoleLabels(user);
-  const memberName = getMemberName(user);
+  const roles = governance?.access.roles.map((role) => role.name) ?? getRoleLabels(user);
+  const memberName = [user.firstName, user.lastName].filter(Boolean).join(" ") || getMemberName(user);
 
   const primaryRole =
     roles.length > 0

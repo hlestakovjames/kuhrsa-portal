@@ -646,9 +646,11 @@ export default function MemberDashboardWorkspace({
 
             <DetailRow
               label="Financial Status"
-              value={statusLabel(
-                member.financialStatus,
-              )}
+              value={financeSummary
+                ? financeSummary.outstandingBalance > 0
+                  ? "Outstanding balance"
+                  : "Up to date"
+                : statusLabel(member.financialStatus)}
             />
 
             <DetailRow

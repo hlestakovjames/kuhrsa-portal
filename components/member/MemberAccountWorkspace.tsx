@@ -30,7 +30,7 @@ type Props = {
 };
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
   "http://localhost:3001";
 
 function valueOrUnavailable(value?: string | number | null) {

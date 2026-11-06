@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import RoleManagementWorkspace from "@/components/administration/RoleManagementWorkspace";
+import UsersWorkspace from "@/components/users/UsersWorkspace";
+import { getToken } from "@/lib/auth";
 
 type AccessView =
   | "users"
@@ -16,33 +19,6 @@ type AccessView =
 type Props = {
   view: AccessView;
 };
-
-const users = [
-  {
-    name: "Avery Morgan",
-    email: "avery.morgan@example.test",
-    role: "System Administrator",
-    status: "Active",
-  },
-  {
-    name: "Jordan Otieno",
-    email: "jordan.otieno@example.test",
-    role: "Executive - Treasurer",
-    status: "Active",
-  },
-  {
-    name: "Taylor Wambui",
-    email: "taylor.wambui@example.test",
-    role: "Executive - Secretary General",
-    status: "Active",
-  },
-  {
-    name: "Casey Kariuki",
-    email: "casey.kariuki@example.test",
-    role: "Content Administrator",
-    status: "Active",
-  },
-];
 
 const assignments = [
   ["Chairperson", "Executive Committee", "Current Term", "Assigned"],
@@ -154,98 +130,95 @@ function Badge({ value }: { value: string }) {
   );
 }
 
+const ACCESS_API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ??
+  "http://localhost:3001";
+
+type AccessSummary = {
+  users: number | null;
+  roles: number | null;
+  permissions: number | null;
+  activeRoleAssignments: number | null;
+};
+
 function DashboardView() {
+  const [summary, setSummary] = useState<AccessSummary>({
+    users: null,
+    roles: null,
+    permissions: null,
+    activeRoleAssignments: null,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSummary() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
+      const requestList = async (path: string) => {
+        const response = await fetch(`${ACCESS_API_URL}${path}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!response.ok) return null;
+        const data: unknown = await response.json().catch(() => null);
+        return Array.isArray(data) ? data : null;
+      };
+
+      const [users, roles, permissions] = await Promise.all([
+        requestList("/users"),
+        requestList("/roles"),
+        requestList("/permissions"),
+      ]);
+
+      if (!mounted) return;
+
+      const roleRecords = roles as Array<{ userCount?: number }> | null;
+      setSummary({
+        users: users?.length ?? null,
+        roles: roles?.length ?? null,
+        permissions: permissions?.length ?? null,
+        activeRoleAssignments: roleRecords
+          ? roleRecords.reduce((total, role) => total + (Number(role.userCount) || 0), 0)
+          : null,
+      });
+      setLoading(false);
+    }
+
+    void loadSummary();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const displayCount = (value: number | null) =>
+    loading ? "…" : value === null ? "Unavailable" : value.toLocaleString("en-KE");
+
   return (
     <div className="space-y-6">
       <Header
         title="User & Access Management"
-        description="Manage users, roles, permissions, executive position assignments, access rules, delegated authority, reviews and access logs."
+        description="Live organization-scoped user, role and permission totals from the KUHRSA backend. Access to each dataset follows the permissions assigned to your account."
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="System Users" value="84" />
-        <StatCard label="Configured Roles" value="18" />
-        <StatCard label="Permissions" value="124" />
-        <StatCard label="Current Assignments" value="16" />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-black text-[#0B2633]">
-                Executive Assignments
-              </h2>
-
-              <p className="mt-1 text-sm text-black/40">
-                Current synthetic office bearer assignments.
-              </p>
-            </div>
-
-            <Link
-              href="/administration/access/positions"
-              className="text-sm font-black text-[#CE26A4]"
-            >
-              Manage →
-            </Link>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {assignments.slice(0, 4).map((item) => (
-              <div
-                key={item[0]}
-                className="rounded-2xl bg-[#F8FBFC] p-4"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-black text-[#0B2633]">
-                    {item[0]}
-                  </p>
-
-                  <Badge value={item[3]} />
-                </div>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {item[1]} • {item[2]}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-          <h2 className="text-lg font-black text-[#0B2633]">
-            Access Controls
-          </h2>
-
-          <div className="mt-5 space-y-3">
-            {accessRules.slice(0, 5).map((item) => (
-              <div
-                key={item[0]}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-[#F8FBFC] p-4"
-              >
-                <div>
-                  <p className="text-sm font-black text-[#0B2633]">
-                    {item[0]}
-                  </p>
-
-                  <p className="mt-1 text-xs text-black/40">
-                    {item[1]}
-                  </p>
-                </div>
-
-                <Badge value={item[2]} />
-              </div>
-            ))}
-          </div>
-        </div>
+        <StatCard label="System Users" value={displayCount(summary.users)} />
+        <StatCard label="Configured Roles" value={displayCount(summary.roles)} />
+        <StatCard label="Permissions" value={displayCount(summary.permissions)} />
+        <StatCard label="Active Role Assignments" value={displayCount(summary.activeRoleAssignments)} />
       </section>
 
       <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <h2 className="text-lg font-black text-[#0B2633]">
-          Access Management
-        </h2>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <h2 className="text-lg font-black text-[#0B2633]">Access Management</h2>
+        <p className="mt-1 text-sm text-black/45">
+          Open the live management screens. Protected system roles and permissions remain read-only; custom role grants are validated by the backend.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {[
             ["Users", "/administration/users"],
             ["Roles", "/administration/access/roles"],
@@ -271,64 +244,7 @@ function DashboardView() {
 }
 
 function UsersView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Users"
-        description="Manage KUHRSA system identities and their assigned access."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Active Users" value="79" />
-        <StatCard label="Pending Access" value="3" />
-        <StatCard label="Suspended" value="2" />
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["User", "Email", "Role", "Status"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {users.map((item) => (
-                <tr
-                  key={item.email}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-sm font-black text-[#0B2633] first:pl-0">
-                    {item.name}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs text-black/50">
-                    {item.email}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/55">
-                    {item.role}
-                  </td>
-
-                  <td className="px-3 py-4">
-                    <Badge value={item.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
+  return <UsersWorkspace />;
 }
 
 function RolesView() {

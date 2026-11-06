@@ -577,7 +577,7 @@ export default function ProtectedDashboard({
           });
         }
       } catch (dashboardError) {
-        if (mounted) {
+        if (mounted && !dashboardCache.has(portal)) {
           setError(
             dashboardError instanceof Error
               ? dashboardError.message

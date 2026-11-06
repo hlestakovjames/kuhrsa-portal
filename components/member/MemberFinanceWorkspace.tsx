@@ -69,7 +69,15 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
     } catch (e) { setError(e instanceof Error ? e.message : "Your finance information could not be loaded."); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    window.addEventListener("focus", load);
+    const refreshInterval = window.setInterval(() => void load(), 30000);
+    return () => {
+      window.removeEventListener("focus", load);
+      window.clearInterval(refreshInterval);
+    };
+  }, [load]);
 
   const initiatePayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -119,6 +127,7 @@ export default function MemberFinanceWorkspace({ view }: { view: FinanceView }) 
       }
       setPaymentMessage(payload?.mpesa?.customerMessage || "STK prompt sent. Check your phone and complete the M-Pesa prompt.");
       setPaymentAmount("");
+      await load();
     } catch (e) {
       setPaymentError(e instanceof Error ? e.message : "M-Pesa payment could not be initiated.");
     } finally {

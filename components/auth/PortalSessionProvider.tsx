@@ -37,9 +37,11 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
       return () => { active = false; };
     }
 
+    const activePortal = portal;
+
     async function authenticate() {
       if (user) {
-        if (canAccessPortal(user, portal)) {
+        if (canAccessPortal(user, activePortal)) {
           setError("");
           setLoading(false);
         } else {
@@ -55,7 +57,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
         const authenticatedUser = await getMe();
         if (active) {
           setUser(authenticatedUser);
-          if (!canAccessPortal(authenticatedUser, portal)) {
+          if (!canAccessPortal(authenticatedUser, activePortal)) {
             setError("You do not have access to this portal.");
           }
         }

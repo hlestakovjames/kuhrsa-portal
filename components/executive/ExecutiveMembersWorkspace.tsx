@@ -6,6 +6,8 @@ import { getToken } from "@/lib/auth";
 type ExecutiveMemberRecord = {
   id: string;
   memberNumber: string;
+  registrationNumber?: string | null;
+  position?: string | null;
   category: string;
   status: string;
   activationStatus: string;

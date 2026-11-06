@@ -67,6 +67,16 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
   return data as T;
 }
 
+function Header({ title, description }: { title: string; description: string }) {
+  return (
+    <section className="rounded-3xl bg-white p-6 shadow-[0_8px_30px_rgba(11,38,51,0.04)] ring-1 ring-black/[0.06] sm:p-8">
+      <p className="text-xs font-black uppercase tracking-[0.17em] text-[#CE26A4]">User & Access Management</p>
+      <h1 className="mt-2 text-3xl font-black tracking-tight text-[#0B2633]">{title}</h1>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-black/50">{description}</p>
+    </section>
+  );
+}
+
 function Panel({ children }: { children: React.ReactNode }) {
   return <section className="rounded-3xl bg-white p-5 ring-1 ring-black/[0.06] sm:p-6">{children}</section>;
 }
@@ -273,8 +283,8 @@ export default function RoleManagementWorkspace({ view }: { view: View }) {
                       {users.filter((u) => !u.isSystemOwner && u.status === "ACTIVE").map((u) => <option key={u.id} value={u.id}>{[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email} — {u.email}</option>)}
                     </select>
                   </label>
-                  <label className="text-xs font-bold text-black/55">Starts at (optional)<input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
-                  <label className="text-xs font-bold text-black/55">Ends at (required for Administrator and Executive)<input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+                  <label className="text-xs font-bold text-black/55">Starts at{detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE" ? " (required)" : " (optional)"}<input type="datetime-local" required={detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE"} value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+                  <label className="text-xs font-bold text-black/55">Ends at{detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE" ? " (required)" : " (optional)"}<input type="datetime-local" required={detail.code === "ADMINISTRATOR" || detail.code === "EXECUTIVE"} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
                   <div className="sm:col-span-2"><ActionButton disabled={busy || !userId}>Assign role</ActionButton></div>
                 </form>
               </Panel>

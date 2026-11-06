@@ -781,6 +781,8 @@ export default function ProtectedDashboard({
           | "activation"
           | "renewal"
           | "verification"}
+        user={user}
+        member={dashboard.portal === "member" ? dashboard.member : null}
       />
     );
   }

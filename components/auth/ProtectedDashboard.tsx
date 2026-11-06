@@ -13,7 +13,7 @@ import {
   PortalType,
 } from "@/lib/auth";
 
-import DashboardShell from "@/components/dashboard/DashboardShell";
+import { usePortalSession } from "@/components/auth/PortalSessionProvider";
 import ExecutiveDashboardWorkspace from "@/components/executive/ExecutiveDashboardWorkspace";
 import MemberAccountWorkspace from "@/components/member/MemberAccountWorkspace";
 import MemberCommunicationWorkspace from "@/components/member/MemberCommunicationWorkspace";
@@ -208,6 +208,16 @@ type ExecutiveGovernanceSnapshot = {
 type DashboardErrorResponse = {
   message?: string;
 };
+
+type CachedPortalDashboard = {
+  user: AuthUser;
+  dashboard: DashboardResponse;
+  governance: ExecutiveGovernanceSnapshot | null;
+  cachedAt: number;
+};
+
+const dashboardCache = new Map<PortalType, CachedPortalDashboard>();
+const DASHBOARD_CACHE_TTL = 30_000;
 
 const dashboardEndpoints: Record<
   PortalType,
@@ -434,18 +444,20 @@ export default function ProtectedDashboard({
   memberView = "overview",
 }: ProtectedDashboardProps) {
   const router = useRouter();
+  const { user: sessionUser } = usePortalSession();
+  const cachedDashboard = dashboardCache.get(portal);
 
   const [user, setUser] =
-    useState<AuthUser | null>(null);
+    useState<AuthUser | null>(cachedDashboard?.user ?? sessionUser);
 
   const [dashboard, setDashboard] =
-    useState<DashboardResponse | null>(null);
+    useState<DashboardResponse | null>(cachedDashboard?.dashboard ?? null);
 
   const [governance, setGovernance] =
-    useState<ExecutiveGovernanceSnapshot | null>(null);
+    useState<ExecutiveGovernanceSnapshot | null>(cachedDashboard?.governance ?? null);
 
   const [loading, setLoading] =
-    useState(true);
+    useState(!cachedDashboard);
 
   const [error, setError] =
     useState("");
@@ -454,9 +466,22 @@ export default function ProtectedDashboard({
     let mounted = true;
 
     async function loadDashboard() {
+      const existing = dashboardCache.get(portal);
+      if (existing) {
+        setUser(sessionUser);
+        setDashboard(existing.dashboard);
+        setGovernance(existing.governance);
+        setLoading(false);
+        setError("");
+      } else {
+        setLoading(true);
+      }
+
       try {
-        const authenticatedUser =
-          await getMe();
+        const authenticatedUser = sessionUser;
+        if (!authenticatedUser) {
+          throw new Error("Your authenticated portal session is unavailable.");
+        }
 
         if (
           !canAccessPortal(
@@ -542,6 +567,12 @@ export default function ProtectedDashboard({
           setUser(authenticatedUser);
           setDashboard(data);
           setGovernance(governanceData);
+          dashboardCache.set(portal, {
+            user: authenticatedUser,
+            dashboard: data,
+            governance: governanceData,
+            cachedAt: Date.now(),
+          });
         }
       } catch (dashboardError) {
         if (mounted) {
@@ -563,7 +594,7 @@ export default function ProtectedDashboard({
     return () => {
       mounted = false;
     };
-  }, [portal]);
+  }, [portal, sessionUser]);
 
   const handleLogout = () => {
     logout();
@@ -787,14 +818,7 @@ export default function ProtectedDashboard({
     );
   }
 
-  return (
-    <DashboardShell
-      portal={portal}
-      user={user}
-    >
-      {workspace}
-    </DashboardShell>
-  );
+  return workspace;
 }
 
 function ExistingPortalWorkspace({

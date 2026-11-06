@@ -704,7 +704,6 @@ export default function ProtectedDashboard({
   ) {
     workspace = (
       <ExistingPortalWorkspace
-        portal="administration"
         title={title}
         description={description}
         dashboard={dashboard}
@@ -827,7 +826,6 @@ export default function ProtectedDashboard({
 }
 
 function ExistingPortalWorkspace({
-  portal,
   title,
   description,
   dashboard,
@@ -835,7 +833,6 @@ function ExistingPortalWorkspace({
   member,
   isSystemOwner,
 }: {
-  portal: "administration";
   title: string;
   description: string;
   dashboard: AdministrationDashboardResponse;

@@ -259,45 +259,162 @@ function PermissionsView() {
   return <RoleManagementWorkspace view="permissions" />;
 }
 
+type GovernanceAssignment = {
+  id: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  member?: {
+    memberNumber?: string | null;
+    user?: { firstName?: string | null; lastName?: string | null } | null;
+  } | null;
+  position?: { name?: string; code?: string } | null;
+  term?: { name?: string; code?: string } | null;
+  roles?: Array<{ role?: { name?: string; code?: string } }>;
+};
+
 function PositionAssignmentsView() {
+  const [assignments, setAssignments] = useState<GovernanceAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAssignments() {
+      const token = getToken();
+      if (!token) {
+        if (mounted) {
+          setError("Your session is unavailable. Sign in again to view governance assignments.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`${ACCESS_API_URL}/governance/assignments`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (response.status === 403) {
+            throw new Error("Your account does not have permission to view executive position assignments.");
+          }
+          throw new Error(`Unable to load governance assignments (HTTP ${response.status}).`);
+        }
+        const data: unknown = await response.json();
+        if (!Array.isArray(data)) {
+          throw new Error("The governance assignments response was not in the expected format.");
+        }
+        if (mounted) setAssignments(data as GovernanceAssignment[]);
+      } catch (loadError) {
+        if (mounted) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load governance assignments.");
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadAssignments();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const formatDate = (value: string) =>
+    new Date(value).toLocaleDateString("en-KE", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+
+  const statusClass = (status: string) => {
+    const normalized = status.toUpperCase();
+    if (normalized === "ACTIVE") return "bg-emerald-50 text-emerald-700";
+    if (normalized === "PENDING") return "bg-amber-50 text-amber-700";
+    if (normalized === "REVOKED" || normalized === "ENDED") return "bg-black/[0.06] text-black/50";
+    return "bg-[#CE26A4]/10 text-[#CE26A4]";
+  };
+
   return (
     <div className="space-y-6">
       <Header
         title="Position Assignments"
-        description="Assign users to KUHRSA executive positions and governance responsibilities."
+        description="Organization-scoped executive and governance appointments loaded from the KUHRSA backend."
       />
 
-      <section className="space-y-3">
-        {assignments.map(([position, committee, term, status]) => (
-          <div
-            key={position}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {position}
-                </p>
+      <section className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Total Assignments" value={loading ? "…" : String(assignments.length)} />
+        <StatCard label="Active" value={loading ? "…" : String(assignments.filter((item) => item.status.toUpperCase() === "ACTIVE").length)} />
+        <StatCard label="Pending" value={loading ? "…" : String(assignments.filter((item) => item.status.toUpperCase() === "PENDING").length)} />
+      </section>
 
-                <p className="mt-1 text-xs text-black/40">
-                  {committee} • {term}
-                </p>
-              </div>
-
-              <Badge value={status} />
-            </div>
+      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[#0B2633]">Governance appointments</h2>
+            <p className="mt-1 text-sm text-black/45">Current and historical position assignments.</p>
           </div>
-        ))}
+          <span className="rounded-full bg-[#F8FBFC] px-3 py-1.5 text-xs font-bold text-black/50">
+            {loading ? "Loading…" : `${assignments.length} records`}
+          </span>
+        </div>
+
+        {error ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            {error}
+          </div>
+        ) : loading ? (
+          <p className="mt-6 text-sm text-black/45">Loading governance assignments…</p>
+        ) : assignments.length === 0 ? (
+          <p className="mt-6 rounded-2xl bg-[#F8FBFC] p-5 text-sm text-black/50">
+            No position assignments have been recorded for this organization.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead>
+                <tr className="border-b border-black/[0.06]">
+                  {["Position", "Office bearer", "Leadership term", "Access roles", "Period", "Status"].map((label) => (
+                    <th key={label} className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((assignment) => {
+                  const fullName = [assignment.member?.user?.firstName, assignment.member?.user?.lastName].filter(Boolean).join(" ");
+                  return (
+                    <tr key={assignment.id} className="border-b border-black/[0.05] last:border-0">
+                      <td className="px-3 py-4 first:pl-0">
+                        <p className="text-sm font-black text-[#0B2633]">{assignment.position?.name ?? "Unspecified position"}</p>
+                        <p className="mt-1 text-[11px] text-black/40">{assignment.position?.code ?? "—"}</p>
+                      </td>
+                      <td className="px-3 py-4">
+                        <p className="text-sm font-semibold text-[#0B2633]">{fullName || "Member record"}</p>
+                        <p className="mt-1 text-[11px] text-black/40">{assignment.member?.memberNumber ?? "Member number unavailable"}</p>
+                      </td>
+                      <td className="px-3 py-4 text-xs text-black/55">{assignment.term?.name ?? assignment.term?.code ?? "—"}</td>
+                      <td className="px-3 py-4 text-xs text-black/55">
+                        {assignment.roles?.length ? assignment.roles.map((item) => item.role?.name ?? item.role?.code).filter(Boolean).join(", ") : "No additional role"}
+                      </td>
+                      <td className="px-3 py-4 text-xs text-black/55">{formatDate(assignment.startsAt)} – {formatDate(assignment.endsAt)}</td>
+                      <td className="px-3 py-4">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${statusClass(assignment.status)}`}>{assignment.status.replaceAll("_", " ")}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <div className="rounded-2xl border border-[#CE26A4]/10 bg-[#FFF7FC] p-4">
-        <p className="text-xs font-black uppercase tracking-[0.12em] text-[#CE26A4]">
-          Executive Architecture
-        </p>
-
+        <p className="text-xs font-black uppercase tracking-[0.12em] text-[#CE26A4]">Governance access model</p>
         <p className="mt-2 text-sm leading-6 text-black/55">
-          Position assignment identifies the office bearer. Roles and
-          permissions determine what that office bearer can access and do.
+          A position identifies the office bearer. Leadership terms define the period, while assigned roles provide scoped permissions. Appointment creation, activation, ending and revocation remain controlled by their dedicated backend permissions.
         </p>
       </div>
     </div>

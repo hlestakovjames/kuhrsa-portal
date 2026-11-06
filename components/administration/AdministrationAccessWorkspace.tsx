@@ -131,7 +131,7 @@ function Badge({ value }: { value: string }) {
 }
 
 const ACCESS_API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
   "http://localhost:3001";
 
 type AccessSummary = {
@@ -161,13 +161,17 @@ function DashboardView() {
       }
 
       const requestList = async (path: string) => {
-        const response = await fetch(`${ACCESS_API_URL}${path}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
-        if (!response.ok) return null;
-        const data: unknown = await response.json().catch(() => null);
-        return Array.isArray(data) ? data : null;
+        try {
+          const response = await fetch(`${ACCESS_API_URL}${path}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+          if (!response.ok) return null;
+          const data: unknown = await response.json().catch(() => null);
+          return Array.isArray(data) ? data : null;
+        } catch {
+          return null;
+        }
       };
 
       const [users, roles, permissions] = await Promise.all([

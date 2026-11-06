@@ -2,13 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import {
   AuthUser,
   canAccessPortal,
   getToken,
-  logout,
   PortalType,
 } from "@/lib/auth";
 
@@ -442,8 +440,7 @@ export default function ProtectedDashboard({
   description,
   memberView = "overview",
 }: ProtectedDashboardProps) {
-  const router = useRouter();
-  const { user: sessionUser } = usePortalSession();
+  const { user: sessionUser, logout: logoutSession } = usePortalSession();
   const cachedDashboard = dashboardCache.get(portal);
   const matchingCachedDashboard =
     cachedDashboard?.user.id === sessionUser?.id
@@ -606,8 +603,7 @@ export default function ProtectedDashboard({
   }, [portal, sessionUser]);
 
   const handleLogout = () => {
-    logout();
-    router.push("/login");
+    logoutSession();
   };
 
   if (loading) {

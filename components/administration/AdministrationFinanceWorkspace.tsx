@@ -48,6 +48,7 @@ type PaymentRecord = {
 
 type FeeSchedule = {
   id: string;
+  feeDefinitionId: string;
   name: string;
   amount: string | number;
   currency: string;
@@ -745,7 +746,7 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
     setFeeActionError(null);
     setFeeActionSuccess(null);
     try {
-      await apiWrite(`/finance/fees/${encodeURIComponent(schedule.id)}/schedules`, "PATCH", {
+      await apiWrite(`/finance/fees/${encodeURIComponent(schedule.feeDefinitionId)}/schedules/${encodeURIComponent(schedule.id)}`, "PATCH", {
         name: editScheduleName.trim(),
         amount: Number(editScheduleAmount),
         status: editScheduleStatus,
@@ -872,7 +873,6 @@ export default function AdministrationFinanceWorkspace({ view }: Props) {
         amount,
         currency: "KES",
         method: paymentMethod,
-        status: "PENDING",
         ...(paymentReference.trim() ? { reference: paymentReference.trim() } : {}),
         ...(paymentExternalReference.trim() ? { externalReference: paymentExternalReference.trim() } : {}),
         ...(paymentDescription.trim() ? { description: paymentDescription.trim() } : {}),

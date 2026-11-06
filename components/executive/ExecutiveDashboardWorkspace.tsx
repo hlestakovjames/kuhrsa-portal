@@ -156,6 +156,8 @@ export default function ExecutiveDashboardWorkspace({
 }: ExecutiveDashboardWorkspaceProps) {
   const roles = governance?.access.roles.map((role) => role.name) ?? getRoleLabels(user);
   const memberName = [user.firstName, user.lastName].filter(Boolean).join(" ") || getMemberName(user);
+  const assignments = governance?.governance.assignments ?? [];
+  const permissionCount = governance?.access.permissions.length ?? 0;
 
   const primaryRole =
     roles.length > 0
@@ -325,6 +327,41 @@ export default function ExecutiveDashboardWorkspace({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Live appointments from the governance service */}
+      <section id="my-office" className="mt-8">
+        <div className="mb-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#168DB8]">My Executive Role</p>
+          <h2 className="mt-1 text-2xl font-black tracking-tight text-[#0B2633]">Current appointments</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-black/50">Office, term dates and mapped roles from your active governance records.</p>
+        </div>
+        {assignments.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {assignments.map((assignment) => (
+              <article key={assignment.id} className="rounded-[1.5rem] border border-[#168DB8]/15 bg-white p-5 shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#168DB8]">{assignment.position.code}</p>
+                <h3 className="mt-1 text-lg font-black text-[#0B2633]">{assignment.position.name}</h3>
+                <p className="mt-1 text-xs text-black/45">{assignment.term.name} · {assignment.term.code}</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl bg-[#F7FAFB] p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-black/35">Appointment</p>
+                    <p className="mt-1 text-xs font-bold text-[#0B2633]">{new Date(assignment.startsAt).toLocaleDateString()} – {new Date(assignment.endsAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="rounded-xl bg-[#F7FAFB] p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-black/35">Term</p>
+                    <p className="mt-1 text-xs font-bold text-[#0B2633]">{new Date(assignment.term.startsAt).toLocaleDateString()} – {new Date(assignment.term.endsAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                {assignment.roles.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{assignment.roles.map((role) => <span key={role.code} className="rounded-full bg-[#168DB8]/10 px-3 py-1.5 text-[10px] font-bold text-[#0B617F]">{role.name}</span>)}</div> : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+            No active governance appointment was returned for this account. Access roles may still be present, but an office and term have not been assigned or activated.
+          </div>
+        )}
       </section>
 
       {/* Overview */}

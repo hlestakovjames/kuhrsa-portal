@@ -4,7 +4,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from "react
 import { usePathname, useRouter } from "next/navigation";
 
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import { AuthUser, canAccessPortal, getMe, logout, PortalType } from "@/lib/auth";
+import { AuthUser, canAccessPortal, getLandingPath, getMe, logout, PortalType } from "@/lib/auth";
 
 type PortalSession = { user: AuthUser | null; logout: () => void };
 const PortalSessionContext = createContext<PortalSession>({ user: null, logout: () => undefined });
@@ -53,14 +53,17 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
       setError("");
       try {
         const authenticatedUser = await getMe();
-        if (!canAccessPortal(authenticatedUser, portal)) {
-          throw new Error("You do not have access to this portal.");
+        if (active) {
+          setUser(authenticatedUser);
+          if (!canAccessPortal(authenticatedUser, portal)) {
+            setError("You do not have access to this portal.");
+          }
         }
-        if (active) setUser(authenticatedUser);
       } catch (authError) {
         if (active) {
           setError(authError instanceof Error ? authError.message : "Your session is invalid.");
           logout();
+          setUser(null);
           router.replace("/login");
         }
       } finally {
@@ -71,6 +74,14 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
     void authenticate();
     return () => { active = false; };
   }, [portal, user, router]);
+
+  const handleReturn = () => {
+    if (user) {
+      router.replace(getLandingPath(user));
+      return;
+    }
+    handleLogout();
+  };
 
   const handleLogout = () => {
     setUser(null);
@@ -99,7 +110,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
         <div className="max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-black/5">
           <h1 className="text-xl font-black text-[#0B2633]">Portal access unavailable</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">{error || "Please sign in to continue."}</p>
-          <button type="button" onClick={handleLogout} className="mt-6 rounded-full bg-[#168DB8] px-5 py-2.5 text-sm font-bold text-white">Return to login</button>
+          <button type="button" onClick={handleReturn} className="mt-6 rounded-full bg-[#168DB8] px-5 py-2.5 text-sm font-bold text-white">{user ? "Return to your workspace" : "Return to login"}</button>
         </div>
       </main>
     );

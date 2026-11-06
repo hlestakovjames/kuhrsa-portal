@@ -125,7 +125,7 @@ type MemberNotificationList = {
 };
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\\/+$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
   "http://localhost:3001";
 
 async function notificationRequest<T>(
@@ -409,22 +409,8 @@ export default function MemberCommunicationWorkspace({
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[#168DB8]">
                 Recent Notifications
               </p>
-
               <div className="mt-5">
                 <MemberNotificationFeed compact />
-              </div>
-
-                        {!notification.read && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-[#168DB8]" />
-                        )}
-                      </div>
-
-                      <p className="mt-2 text-[10px] font-bold text-black/25">
-                        {notification.date} ·{" "}
-                        {notification.time}
-                      </p>
-                    </Link>
-                  ))}
               </div>
             </div>
 

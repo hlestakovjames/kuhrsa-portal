@@ -763,6 +763,8 @@ export default function ProtectedDashboard({
         view={getAccountView(
           memberView,
         )}
+        user={user}
+        member={dashboard.portal === "member" ? dashboard.member : null}
       />
     );
   } else {

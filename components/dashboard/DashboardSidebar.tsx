@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 
 import {
   AuthUser,
+  canAccessPortal,
   PortalType,
 } from "@/lib/auth";
 
@@ -46,6 +47,7 @@ type NavSection = {
   id: string;
   label: string;
   items: NavItem[];
+  workspace?: boolean;
 };
 
 function getMemberSections(): NavSection[] {
@@ -1764,10 +1766,65 @@ export default function DashboardSidebar({
 }: DashboardSidebarProps) {
   const pathname = usePathname();
 
-  const sections = useMemo(
-    () => getPortalSections(portal),
-    [portal],
-  );
+  const sections = useMemo(() => {
+    const hasMemberWorkspace =
+      Boolean(user.member) &&
+      canAccessPortal(user, "member");
+
+    const managementPortal: PortalType | null =
+      portal !== "member" && canAccessPortal(user, portal)
+        ? portal
+        : canAccessPortal(user, "administration")
+          ? "administration"
+          : canAccessPortal(user, "executive")
+            ? "executive"
+            : null;
+
+    const memberSections = hasMemberWorkspace
+      ? getMemberSections().map((section) => ({
+          ...section,
+          id: `member:${section.id}`,
+        }))
+      : [];
+
+    const managementSections = managementPortal
+      ? getPortalSections(managementPortal)
+          .map((section) => ({
+            ...section,
+            id: `management:${section.id}`,
+          }))
+      : [];
+
+    if (hasMemberWorkspace && managementPortal) {
+      return [
+        {
+          id: "workspace:member",
+          label: "Member Workspace",
+          items: [],
+          workspace: true,
+        },
+        ...memberSections,
+        {
+          id: "workspace:management",
+          label:
+            managementPortal === "administration"
+              ? "Management Workspace · Administration"
+              : "Management Workspace · Executive",
+          items: [],
+          workspace: true,
+        },
+        ...managementSections,
+      ];
+    }
+
+    if (hasMemberWorkspace) {
+      return memberSections;
+    }
+
+    return managementSections.length > 0
+      ? managementSections
+      : getPortalSections(portal);
+  }, [portal, user]);
 
   const [
     userOpenedSection,
@@ -1854,6 +1911,17 @@ export default function DashboardSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
         <nav className="space-y-2">
           {sections.map((section) => {
+            if (section.workspace) {
+              return (
+                <div
+                  key={section.id}
+                  className="px-3 pb-1 pt-5 text-[10px] font-black uppercase tracking-[0.16em] text-[#61C7E9]"
+                >
+                  {section.label}
+                </div>
+              );
+            }
+
             const sectionOpen =
               openSection === section.id;
 

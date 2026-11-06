@@ -158,6 +158,7 @@ export default function ExecutiveDashboardWorkspace({
   const memberName = [user.firstName, user.lastName].filter(Boolean).join(" ") || getMemberName(user);
   const assignments = governance?.governance.assignments ?? [];
   const permissionCount = governance?.access.permissions.length ?? 0;
+  const effectivePermissions = governance?.access.permissions ?? [];
 
   const primaryRole =
     roles.length > 0
@@ -362,6 +363,19 @@ export default function ExecutiveDashboardWorkspace({
             No active governance appointment was returned for this account. Access roles may still be present, but an office and term have not been assigned or activated.
           </div>
         )}
+      </section>
+
+        {effectivePermissions.length > 0 ? (
+          <div className="mt-4 rounded-2xl border border-black/[0.06] bg-white p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/40">Effective permissions</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {effectivePermissions.slice(0, 16).map((permission) => (
+                <span key={permission} className="rounded-full bg-[#168DB8]/10 px-3 py-1.5 text-[10px] font-bold text-[#0B617F]">{permission}</span>
+              ))}
+              {effectivePermissions.length > 16 ? <span className="rounded-full bg-black/[0.04] px-3 py-1.5 text-[10px] font-bold text-black/50">+{effectivePermissions.length - 16} more</span> : null}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* Overview */}

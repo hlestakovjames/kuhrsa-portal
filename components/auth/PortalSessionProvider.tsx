@@ -32,8 +32,6 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
     let active = true;
 
     if (!portal) {
-      setLoading(false);
-      setError("");
       return () => { active = false; };
     }
 

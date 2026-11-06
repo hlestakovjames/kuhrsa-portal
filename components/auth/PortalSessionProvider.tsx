@@ -25,7 +25,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
   const router = useRouter();
   const portal = getPortalFromPath(pathname);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(Boolean(portal));
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {

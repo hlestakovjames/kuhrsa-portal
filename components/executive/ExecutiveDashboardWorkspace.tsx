@@ -218,7 +218,7 @@ export default function ExecutiveDashboardWorkspace({
               </Link>
 
               <Link
-                href="/executive/leadership"
+                href="#my-office"
                 className="rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 text-sm font-bold text-white transition hover:bg-white/[0.1]"
               >
                 My Executive Role
@@ -606,7 +606,7 @@ export default function ExecutiveDashboardWorkspace({
             </p>
 
             <h2 className="mt-2 text-xl font-black tracking-tight text-[#0B2633]">
-              Position-based management is coming next
+              Position-based access is active
             </h2>
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-black/50">

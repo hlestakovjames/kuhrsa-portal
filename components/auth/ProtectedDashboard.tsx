@@ -445,18 +445,22 @@ export default function ProtectedDashboard({
   const router = useRouter();
   const { user: sessionUser } = usePortalSession();
   const cachedDashboard = dashboardCache.get(portal);
+  const matchingCachedDashboard =
+    cachedDashboard?.user.id === sessionUser?.id
+      ? cachedDashboard
+      : undefined;
 
   const [user, setUser] =
-    useState<AuthUser | null>(cachedDashboard?.user ?? sessionUser);
+    useState<AuthUser | null>(matchingCachedDashboard?.user ?? sessionUser);
 
   const [dashboard, setDashboard] =
-    useState<DashboardResponse | null>(cachedDashboard?.dashboard ?? null);
+    useState<DashboardResponse | null>(matchingCachedDashboard?.dashboard ?? null);
 
   const [governance, setGovernance] =
-    useState<ExecutiveGovernanceSnapshot | null>(cachedDashboard?.governance ?? null);
+    useState<ExecutiveGovernanceSnapshot | null>(matchingCachedDashboard?.governance ?? null);
 
   const [loading, setLoading] =
-    useState(!cachedDashboard);
+    useState(!matchingCachedDashboard);
 
   const [error, setError] =
     useState("");
@@ -466,7 +470,7 @@ export default function ProtectedDashboard({
 
     async function loadDashboard() {
       const existing = dashboardCache.get(portal);
-      if (existing) {
+      if (existing && existing.user.id === sessionUser?.id) {
         setUser(sessionUser);
         setDashboard(existing.dashboard);
         setGovernance(existing.governance);
@@ -476,6 +480,9 @@ export default function ProtectedDashboard({
           return;
         }
       } else {
+        setUser(sessionUser);
+        setDashboard(null);
+        setGovernance(null);
         setLoading(true);
       }
 
@@ -577,7 +584,7 @@ export default function ProtectedDashboard({
           });
         }
       } catch (dashboardError) {
-        if (mounted && !dashboardCache.has(portal)) {
+        if (mounted && dashboardCache.get(portal)?.user.id !== sessionUser?.id) {
           setError(
             dashboardError instanceof Error
               ? dashboardError.message

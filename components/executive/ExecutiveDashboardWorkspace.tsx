@@ -396,19 +396,15 @@ export default function ExecutiveDashboardWorkspace({
           />
 
           <StatCard
-            label="Role"
-            value={roles.length > 0 ? roles.length.toString() : "1"}
-            description={
-              roles.length === 1
-                ? "Assigned access role"
-                : "Assigned access roles"
-            }
+            label="Active offices"
+            value={assignments.length.toString()}
+            description="Current governance appointments"
           />
 
           <StatCard
-            label="Workspace"
-            value="Executive"
-            description="Management environment"
+            label="Permissions"
+            value={permissionCount.toString()}
+            description="Effective backend permissions"
           />
         </div>
       </section>

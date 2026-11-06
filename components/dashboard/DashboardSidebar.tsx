@@ -433,7 +433,7 @@ function getExecutiveSections(): NavSection[] {
       items: [
         {
           label: "My Executive Role",
-          href: "/executive/leadership",
+          href: "/executive/dashboard#my-office",
           icon: "leadership",
         },
         {

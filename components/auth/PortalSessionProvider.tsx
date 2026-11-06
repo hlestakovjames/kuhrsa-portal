@@ -107,7 +107,7 @@ export default function PortalSessionProvider({ children }: { children: ReactNod
 
   return (
     <PortalSessionContext.Provider value={{ user }}>
-      <DashboardShell portal={portal} user={user}>{children}</DashboardShell>
+      <DashboardShell portal={portal} user={user} onLogout={handleLogout}>{children}</DashboardShell>
     </PortalSessionContext.Provider>
   );
 }

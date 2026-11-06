@@ -50,15 +50,6 @@ type CreateUserForm = {
   lastName: string;
   email: string;
   password: string;
-  roleId: string;
-};
-
-type RoleRecord = {
-  id: string;
-  name: string;
-  code: string;
-  description?: string | null;
-  isSystemRole?: boolean;
 };
 
 const API_URL =
@@ -70,7 +61,6 @@ const emptyForm: CreateUserForm = {
   lastName: "",
   email: "",
   password: "",
-  roleId: "",
 };
 
 async function apiRequest<T>(
@@ -209,69 +199,6 @@ function normalizeUsers(
         : [],
     };
   });
-}
-
-function normalizeRoles(
-  data: unknown,
-): RoleRecord[] {
-  let source = data;
-
-  if (
-    source &&
-    typeof source === "object" &&
-    "data" in source
-  ) {
-    source = (
-      source as {
-        data?: unknown;
-      }
-    ).data;
-  }
-
-  if (!Array.isArray(source)) {
-    return [];
-  }
-
-  return source
-    .filter(
-      (
-        role,
-      ): role is Record<
-        string,
-        unknown
-      > =>
-        Boolean(
-          role &&
-            typeof role === "object",
-        ),
-    )
-    .map((role) => ({
-      id:
-        typeof role.id === "string"
-          ? role.id
-          : "",
-      name:
-        typeof role.name === "string"
-          ? role.name
-          : typeof role.code === "string"
-            ? role.code
-            : "Unknown Role",
-      code:
-        typeof role.code === "string"
-          ? role.code
-          : "",
-      description:
-        typeof role.description ===
-        "string"
-          ? role.description
-          : null,
-      isSystemRole:
-        typeof role.isSystemRole ===
-        "boolean"
-          ? role.isSystemRole
-          : undefined,
-    }))
-    .filter((role) => role.id);
 }
 
 function getRoleTone(
@@ -511,13 +438,7 @@ export default function UsersWorkspace() {
   const [users, setUsers] =
     useState<UserRecord[]>([]);
 
-  const [roles, setRoles] =
-    useState<RoleRecord[]>([]);
-
   const [loading, setLoading] =
-    useState(true);
-
-  const [rolesLoading, setRolesLoading] =
     useState(true);
 
   const [error, setError] =
@@ -596,40 +517,9 @@ export default function UsersWorkspace() {
     [router],
   );
 
-  const loadRoles = useCallback(
-    async () => {
-      setRolesLoading(true);
-
-      try {
-        const data =
-          await apiRequest<unknown>(
-            "/roles",
-          );
-
-        setRoles(
-          normalizeRoles(data),
-        );
-      } catch (requestError) {
-        setError((current) =>
-          current ||
-          (requestError instanceof Error
-            ? requestError.message
-            : "Unable to load roles."),
-        );
-      } finally {
-        setRolesLoading(false);
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
-
-  useEffect(() => {
-    void loadRoles();
-  }, [loadRoles]);
 
   const filteredUsers = useMemo(() => {
     const query =
@@ -788,26 +678,7 @@ export default function UsersWorkspace() {
   }
 
   function openCreate() {
-    const preferredRole =
-      roles.find(
-        (role) =>
-          role.code ===
-          "MEMBER",
-      ) ??
-      roles.find(
-        (role) =>
-          role.name
-            .toLowerCase() ===
-          "member",
-      ) ??
-      roles[0];
-
-    setForm({
-      ...emptyForm,
-      roleId:
-        preferredRole?.id ?? "",
-    });
-
+    setForm(emptyForm);
     setFormError("");
     setShowCreate(true);
   }
@@ -837,13 +708,6 @@ export default function UsersWorkspace() {
 
             password:
               form.password,
-
-            ...(form.roleId
-              ? {
-                  roleId:
-                    form.roleId,
-                }
-              : {}),
           }),
         },
       );
@@ -1329,54 +1193,9 @@ export default function UsersWorkspace() {
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label
-                    htmlFor="role"
-                    className="text-sm font-medium text-slate-700"
-                  >
-                    Initial role
-                  </label>
-
-                  <select
-                    id="role"
-                    required
-                    disabled={
-                      rolesLoading
-                    }
-                    value={
-                      form.roleId
-                    }
-                    onChange={(event) =>
-                      setForm(
-                        (current) => ({
-                          ...current,
-                          roleId:
-                            event.target
-                              .value,
-                        }),
-                      )
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  >
-                    <option value="">
-                      {rolesLoading
-                        ? "Loading roles..."
-                        : "Select role"}
-                    </option>
-
-                    {roles.map(
-                      (role) => (
-                        <option
-                          key={role.id}
-                          value={
-                            role.id
-                          }
-                        >
-                          {role.name}
-                        </option>
-                      ),
-                    )}
-                  </select>
+                <div className="sm:col-span-2 rounded-xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+                  New accounts are created with the baseline Member role.
+                  Additional roles are assigned separately through role management.
                 </div>
               </div>
 
@@ -1393,11 +1212,7 @@ export default function UsersWorkspace() {
 
                 <button
                   type="submit"
-                  disabled={
-                    formLoading ||
-                    rolesLoading ||
-                    !form.roleId
-                  }
+                  disabled={formLoading}
                   className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {formLoading

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import RoleManagementWorkspace from "@/components/administration/RoleManagementWorkspace";
 
 type AccessView =
   | "users"
@@ -41,28 +42,6 @@ const users = [
     role: "Content Administrator",
     status: "Active",
   },
-];
-
-const roles = [
-  ["System Owner", "Full system authority", "Permanent"],
-  ["Super Administrator", "Administrative authority", "Restricted"],
-  ["Administrator", "Operational administration", "Term / Assigned"],
-  ["Executive - Chairperson", "Leadership operations", "Appointment"],
-  ["Executive - Treasurer", "Finance operations", "Appointment"],
-  ["Executive - Secretary General", "Secretariat operations", "Appointment"],
-];
-
-const permissions = [
-  ["members.view", "View member records", "Membership"],
-  ["members.verify", "Verify membership", "Membership"],
-  ["events.manage", "Manage events", "Events"],
-  ["attendance.manage", "Manage attendance", "Events"],
-  ["finance.view", "View financial records", "Finance"],
-  ["finance.reconcile", "Perform reconciliation", "Finance"],
-  ["content.publish", "Publish content", "Content"],
-  ["communication.send", "Send member communications", "Communication"],
-  ["governance.manage", "Manage governance records", "Governance"],
-  ["users.manage", "Manage system users", "Access"],
 ];
 
 const assignments = [
@@ -353,96 +332,11 @@ function UsersView() {
 }
 
 function RolesView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Roles"
-        description="Define reusable access roles independently from constitutional positions."
-      />
-
-      <section className="space-y-3">
-        {roles.map(([name, description, scope]) => (
-          <div
-            key={name}
-            className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#0B2633]">
-                  {name}
-                </p>
-
-                <p className="mt-1 text-xs text-black/40">
-                  {description}
-                </p>
-              </div>
-
-              <span className="text-xs font-bold text-[#CE26A4]">
-                {scope}
-              </span>
-            </div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
+  return <RoleManagementWorkspace view="roles" />;
 }
 
 function PermissionsView() {
-  return (
-    <div className="space-y-6">
-      <Header
-        title="Permissions"
-        description="Granular capabilities that can be assigned to roles and users."
-      />
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total Permissions" value="124" />
-        <StatCard label="Assigned" value="108" />
-        <StatCard label="Unused" value="16" />
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 ring-1 ring-black/[0.06]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-black/[0.06]">
-                {["Permission", "Description", "Module"].map((item) => (
-                  <th
-                    key={item}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black/35 first:pl-0"
-                  >
-                    {item}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {permissions.map(([code, description, module]) => (
-                <tr
-                  key={code}
-                  className="border-b border-black/[0.05] last:border-0"
-                >
-                  <td className="px-3 py-4 text-xs font-black text-[#CE26A4] first:pl-0">
-                    {code}
-                  </td>
-
-                  <td className="px-3 py-4 text-sm text-black/55">
-                    {description}
-                  </td>
-
-                  <td className="px-3 py-4 text-xs font-semibold text-black/50">
-                    {module}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
+  return <RoleManagementWorkspace view="permissions" />;
 }
 
 function PositionAssignmentsView() {

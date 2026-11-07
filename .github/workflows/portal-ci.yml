@@ -1,0 +1,40 @@
+name: Portal CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Type-check, lint and build
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_URL: https://api.example.invalid
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint changed navigation files
+        run: npx eslint components/auth/PortalSessionProvider.tsx components/auth/ProtectedDashboard.tsx components/dashboard/DashboardShell.tsx
+
+      - name: Production build
+        run: npm run build

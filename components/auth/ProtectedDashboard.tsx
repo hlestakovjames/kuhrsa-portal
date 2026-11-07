@@ -2,18 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import {
   AuthUser,
   canAccessPortal,
-  getMe,
   getToken,
-  logout,
   PortalType,
 } from "@/lib/auth";
 
-import DashboardShell from "@/components/dashboard/DashboardShell";
+import { usePortalSession } from "@/components/auth/PortalSessionProvider";
 import ExecutiveDashboardWorkspace from "@/components/executive/ExecutiveDashboardWorkspace";
 import MemberAccountWorkspace from "@/components/member/MemberAccountWorkspace";
 import MemberCommunicationWorkspace from "@/components/member/MemberCommunicationWorkspace";
@@ -208,6 +205,16 @@ type ExecutiveGovernanceSnapshot = {
 type DashboardErrorResponse = {
   message?: string;
 };
+
+type CachedPortalDashboard = {
+  user: AuthUser;
+  dashboard: DashboardResponse;
+  governance: ExecutiveGovernanceSnapshot | null;
+  cachedAt: number;
+};
+
+const dashboardCache = new Map<PortalType, CachedPortalDashboard>();
+const DASHBOARD_CACHE_TTL = 30_000;
 
 const dashboardEndpoints: Record<
   PortalType,
@@ -433,19 +440,24 @@ export default function ProtectedDashboard({
   description,
   memberView = "overview",
 }: ProtectedDashboardProps) {
-  const router = useRouter();
+  const { user: sessionUser, logout: logoutSession } = usePortalSession();
+  const cachedDashboard = dashboardCache.get(portal);
+  const matchingCachedDashboard =
+    cachedDashboard?.user.id === sessionUser?.id
+      ? cachedDashboard
+      : undefined;
 
   const [user, setUser] =
-    useState<AuthUser | null>(null);
+    useState<AuthUser | null>(matchingCachedDashboard?.user ?? sessionUser);
 
   const [dashboard, setDashboard] =
-    useState<DashboardResponse | null>(null);
+    useState<DashboardResponse | null>(matchingCachedDashboard?.dashboard ?? null);
 
   const [governance, setGovernance] =
-    useState<ExecutiveGovernanceSnapshot | null>(null);
+    useState<ExecutiveGovernanceSnapshot | null>(matchingCachedDashboard?.governance ?? null);
 
   const [loading, setLoading] =
-    useState(true);
+    useState(!matchingCachedDashboard);
 
   const [error, setError] =
     useState("");
@@ -454,9 +466,28 @@ export default function ProtectedDashboard({
     let mounted = true;
 
     async function loadDashboard() {
+      const existing = dashboardCache.get(portal);
+      if (existing && existing.user.id === sessionUser?.id) {
+        setUser(sessionUser);
+        setDashboard(existing.dashboard);
+        setGovernance(existing.governance);
+        setLoading(false);
+        setError("");
+        if (Date.now() - existing.cachedAt < DASHBOARD_CACHE_TTL) {
+          return;
+        }
+      } else {
+        setUser(sessionUser);
+        setDashboard(null);
+        setGovernance(null);
+        setLoading(true);
+      }
+
       try {
-        const authenticatedUser =
-          await getMe();
+        const authenticatedUser = sessionUser;
+        if (!authenticatedUser) {
+          throw new Error("Your authenticated portal session is unavailable.");
+        }
 
         if (
           !canAccessPortal(
@@ -542,9 +573,15 @@ export default function ProtectedDashboard({
           setUser(authenticatedUser);
           setDashboard(data);
           setGovernance(governanceData);
+          dashboardCache.set(portal, {
+            user: authenticatedUser,
+            dashboard: data,
+            governance: governanceData,
+            cachedAt: Date.now(),
+          });
         }
       } catch (dashboardError) {
-        if (mounted) {
+        if (mounted && dashboardCache.get(portal)?.user.id !== sessionUser?.id) {
           setError(
             dashboardError instanceof Error
               ? dashboardError.message
@@ -563,11 +600,10 @@ export default function ProtectedDashboard({
     return () => {
       mounted = false;
     };
-  }, [portal]);
+  }, [portal, sessionUser]);
 
   const handleLogout = () => {
-    logout();
-    router.push("/login");
+    logoutSession();
   };
 
   if (loading) {
@@ -668,7 +704,6 @@ export default function ProtectedDashboard({
   ) {
     workspace = (
       <ExistingPortalWorkspace
-        portal="administration"
         title={title}
         description={description}
         dashboard={dashboard}
@@ -787,18 +822,10 @@ export default function ProtectedDashboard({
     );
   }
 
-  return (
-    <DashboardShell
-      portal={portal}
-      user={user}
-    >
-      {workspace}
-    </DashboardShell>
-  );
+  return workspace;
 }
 
 function ExistingPortalWorkspace({
-  portal,
   title,
   description,
   dashboard,
@@ -806,7 +833,6 @@ function ExistingPortalWorkspace({
   member,
   isSystemOwner,
 }: {
-  portal: "administration";
   title: string;
   description: string;
   dashboard: AdministrationDashboardResponse;
